@@ -7,7 +7,7 @@ import bisect
 from rigify.utils.errors import MetarigError
 from rigify.utils.naming import strip_org, make_derived_name
 from rigify.utils.bones import put_bone
-from rigify.utils.mechanism import make_driver, make_constraint
+from rigify.utils.mechanism import make_driver, make_constraint, driver_var_transform
 from rigify.utils.widgets_basic import create_circle_widget, create_sphere_widget
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.misc import map_list, map_apply
@@ -78,6 +78,11 @@ class Rig(SimpleChainRig):
         self.end_control_poslist = [(len(org_bones) - 1, 1.0 - (i + 1) * end_control_step)
                                     for i in reversed(range(num_end_controls))]
 
+        # Radius scaling
+        self.use_radius = self.params.sik_radius_scaling
+        self.max_curve_radius = self.params.sik_max_radius if self.use_radius else 1.0
+
+
     ##############################
     # Utilities
 
@@ -133,11 +138,11 @@ class Rig(SimpleChainRig):
     #     Root control for moving and scaling the whole rig.
     #   main:
     #     List of main spline controls (always visible and active).
-    #   start:
-    #     List of extra spline controls attached to the first main one (can disable).
-    #   end:
-    #     List of extra spline controls attached to the last main one (can disable).
+    #   start, end:
+    #     List of extra spline controls attached to the tip main ones (can disable).
     # mch:
+    #   start_parent, end_parent
+    #     Intermediate bones for parenting extra controls - discards scale of the main.
     #   ik:
     #     Spline IK chain, responsible for extracting the shape of the curve.
     #
@@ -191,7 +196,9 @@ class Rig(SimpleChainRig):
         self.bones.ctrl.start = map_list(self.make_extra_control_bone, self.start_control_poslist, count(0), repeat('start'))
         self.bones.ctrl.end = map_list(self.make_extra_control_bone, self.end_control_poslist, count(0), repeat('end'))
 
-        # Build a list of all controls
+        self.make_all_controls_list()
+
+    def make_all_controls_list(self):
         main_controls = [(bone, 0, i) for i, bone in enumerate(self.bones.ctrl.main)]
         start_controls = [(bone, 1, i) for i, bone in enumerate(self.bones.ctrl.start)]
         end_controls = [(bone, 2, i) for i, bone in enumerate(self.bones.ctrl.end)]
@@ -210,8 +217,8 @@ class Rig(SimpleChainRig):
     def parent_control_chain(self):
         main_bones = self.bones.ctrl.main
         map_apply(self.parent_main_control_bone, main_bones)
-        map_apply(self.parent_extra_control_bone, self.bones.ctrl.start, repeat(main_bones[0]))
-        map_apply(self.parent_extra_control_bone, self.bones.ctrl.end, repeat(main_bones[-1]))
+        map_apply(self.parent_extra_control_bone, self.bones.ctrl.start, repeat(self.bones.mch.start_parent))
+        map_apply(self.parent_extra_control_bone, self.bones.ctrl.end, repeat(self.bones.mch.end_parent))
 
     def parent_main_control_bone(self, ctrl):
         self.set_bone_parent(ctrl, self.bones.ctrl.master)
@@ -241,7 +248,8 @@ class Rig(SimpleChainRig):
             bone.lock_rotation_w = True
             bone.lock_rotation = (True, True, True)
 
-        bone.lock_scale = (True, True, True)
+        if not self.use_radius:
+            bone.lock_scale = (True, True, True)
 
     @stage_rig_bones
     def rig_control_chain(self):
@@ -260,6 +268,41 @@ class Rig(SimpleChainRig):
         create_sphere_widget(self.obj, ctrl)
 
     ##############################
+    # Spline tip parent MCH
+
+    # IN-STAGE DEPENDS ON make_control_chain
+    @stage_generate_bones
+    def make_mch_extra_parent_bones(self):
+        if len(self.start_control_poslist) > 0:
+            self.bones.mch.start_parent = self.make_mch_extra_parent_bone(self.bones.ctrl.main[0])
+
+        if len(self.end_control_poslist) > 0:
+            self.bones.mch.end_parent = self.make_mch_extra_parent_bone(self.bones.ctrl.main[-1])
+
+    def make_mch_extra_parent_bone(self, base_bone):
+        return self.copy_bone(base_bone, make_derived_name(base_bone, 'mch', '.psocket'))
+
+    @stage_parent_bones
+    def parent_mch_extra_parent_bones(self):
+        if len(self.start_control_poslist) > 0:
+            self.set_bone_parent(self.bones.mch.start_parent, self.bones.ctrl.master)
+
+        if len(self.end_control_poslist) > 0:
+            self.set_bone_parent(self.bones.mch.end_parent, self.bones.ctrl.master)
+
+    @stage_rig_bones
+    def rig_mch_extra_parent_bones(self):
+        if len(self.start_control_poslist) > 0:
+            self.rig_mch_extra_parent_bone(self.bones.mch.start_parent, self.bones.ctrl.main[0])
+
+        if len(self.end_control_poslist) > 0:
+            self.rig_mch_extra_parent_bone(self.bones.mch.end_parent, self.bones.ctrl.main[-1])
+
+    def rig_mch_extra_parent_bone(self, bone, ctrl):
+        self.make_constraint(bone, 'COPY_LOCATION', ctrl)
+        self.make_constraint(bone, 'COPY_ROTATION', ctrl)
+
+    ##############################
     # Spline Object
 
     @stage_configure_bones
@@ -267,24 +310,31 @@ class Rig(SimpleChainRig):
         if not self.spline_obj:
             spline_data = bpy.data.curves.new(self.spline_name, 'CURVE')
             self.spline_obj = bpy.data.objects.new(self.spline_name, spline_data)
-        else:
-            spline_data = self.spline_obj.data
+            self.generator.collection.objects.link(self.spline_obj)
 
-        self.generator.collection.objects.link(self.spline_obj)
+            self.spline_obj.show_in_front = True
+            self.spline_obj.hide_select = True
+            self.spline_obj.hide_render = True
+            #self.spline_obj.hide_viewport = True
 
         self.spline_obj.animation_data_clear()
+        self.spline_obj.data.animation_data_clear()
+
+        self.spline_obj.shape_key_clear()
         self.spline_obj.modifiers.clear()
 
-        spline_data.animation_data_clear()
-        spline_data.splines.clear()
+        spline_data = self.spline_obj.data
 
+        spline_data.splines.clear()
         spline_data.dimensions = '3D'
 
         self.make_spline_points(spline_data, self.all_controls)
 
+        if self.use_radius:
+            self.make_spline_keys(self.spline_obj, self.all_controls)
+
         self.spline_obj.parent = self.obj
         self.spline_obj.parent_type = 'OBJECT'
-        self.spline_obj.show_in_front = True
 
     def make_spline_points(self, spline_data, all_controls):
         spline = spline_data.splines.new('BEZIER')
@@ -295,12 +345,25 @@ class Rig(SimpleChainRig):
             point = spline.bezier_points[i]
             point.handle_left_type = point.handle_right_type = 'AUTO'
             point.co = point.handle_left = point.handle_right = self.get_bone(name).head
+            point.radius = self.max_curve_radius
+
+    def make_spline_keys(self, spline_obj, all_controls):
+        spline_obj.shape_key_add(name='Basis', from_mix=False)
+
+        for i, (name,subtype,index) in enumerate(all_controls):
+            key = spline_obj.shape_key_add(name=name, from_mix=False)
+            key.value = 0.0
+            key.data[i].radius = 0.0
 
 
     @stage_rig_bones
     def rig_spline_object(self):
         for i, info in enumerate(self.all_controls):
             self.rig_spline_hook(i, *info)
+
+        if self.use_radius:
+            for i, info in enumerate(self.all_controls):
+                self.rig_spline_radius_shapekey(i, *info)
 
     def rig_spline_hook(self, i, ctrl, subtype, index):
         bone = self.get_bone(ctrl)
@@ -323,6 +386,31 @@ class Rig(SimpleChainRig):
 
             self.rig_enable_control_driver(hook, 'show_viewport', subtype, index, disable=True)
             self.rig_enable_control_driver(hook, 'show_render', subtype, index, disable=True)
+
+    def rig_spline_radius_shapekey(self, i, ctrl, subtype, index):
+        key = self.spline_obj.data.shape_keys.key_blocks[i + 1]
+        switch_prop = self.ENABLE_CONTROL_PROPERTY[subtype]
+
+        assert key.name == ctrl
+
+        scale_expr = 'scale'
+        var_map = {
+            'scale': driver_var_transform(self.obj, ctrl, type='SCALE_AVG', space='LOCAL')
+        }
+
+        if switch_prop:
+            base = self.tip_controls[subtype]
+            scale_expr += ' if active > %d else base_scale' % (index)
+            var_map.update({
+                'base_scale': driver_var_transform(self.obj, base, type='SCALE_AVG', space='LOCAL'),
+                'active': (self.obj, self.bones.ctrl.master, switch_prop)
+            })
+
+        make_driver(
+            key, 'value',
+            expression='1 - (%s) / %.2f' % (scale_expr, self.max_curve_radius),
+            variables=var_map
+        )
 
     ##############################
     # Spline IK Chain
@@ -370,8 +458,11 @@ class Rig(SimpleChainRig):
         if i == 0:
             self.make_constraint(org, 'COPY_LOCATION', ik)
 
+        if self.use_radius:
+            self.make_constraint(org, 'COPY_SCALE', self.bones.ctrl.master, space='WORLD')
+            self.make_constraint(org, 'COPY_SCALE', ik, use_y=False, use_offset=True, space='LOCAL')
+
         self.make_constraint(org, 'COPY_ROTATION', ik)
-        self.make_constraint(org, 'COPY_SCALE', ik, use_y=False, use_offset=True, space='LOCAL')
         self.make_constraint(org, 'STRETCH_TO', ik, head_tail=1.0)
 
     ##############################
@@ -394,6 +485,15 @@ class Rig(SimpleChainRig):
             description="Number of extra spline control points attached to the end control"
         )
 
+        params.sik_radius_scaling = bpy.props.BoolProperty(
+            name="Radius Scaling", default=True,
+            description="Allow scaling the spline control bones to affect the thickness via curve radius"
+        )
+        params.sik_max_radius = bpy.props.FloatProperty(
+            name="Maximum Radius", min=1, default=10,
+            description="Maximum supported scale factor for the spline control bones"
+        )
+
         # Setting up extra tweak layers
         ControlLayersOption.TWEAK.add_parameters(params)
 
@@ -402,9 +502,17 @@ class Rig(SimpleChainRig):
     def parameters_ui(self, layout, params):
         """ Create the ui for the rig parameters. """
 
+        layout.label(icon='INFO', text='A straight line rest shape works best.')
+
         layout.prop(params, 'sik_start_controls')
         layout.prop(params, 'sik_mid_controls')
         layout.prop(params, 'sik_end_controls')
+
+        layout.prop(params, 'sik_radius_scaling')
+
+        col = layout.column()
+        col.active = params.sik_radius_scaling
+        col.prop(params, 'sik_max_radius')
 
         ControlLayersOption.TWEAK.parameters_ui(layout, params)
 
