@@ -475,9 +475,7 @@ class Rig(SimpleChainRig):
         self.bones.mch.ik = map_list(self.make_mch_ik_bone, self.bones.org)
 
     def make_mch_ik_bone(self, org):
-        name = self.copy_bone(org, make_derived_name(org, 'mch', '.ik'))
-        self.get_bone(name).use_inherit_scale = False
-        return name
+        return self.copy_bone(org, make_derived_name(org, 'mch', '.ik'))
 
     @stage_parent_bones
     def parent_mch_ik_chain(self):
@@ -508,9 +506,10 @@ class Rig(SimpleChainRig):
         make_constraint(
             ik_bone, 'SPLINE_IK', self.spline_obj,
             chain_count = len(self.bones.mch.ik),
-            use_curve_radius = True,
+            use_curve_radius = self.use_radius,
             y_scale_mode = 'FIT_CURVE',
-            xz_scale_mode = 'NONE',
+            xz_scale_mode = 'VOLUME_PRESERVE',
+            use_original_scale = True,
         )
 
     ##############################
@@ -526,15 +525,7 @@ class Rig(SimpleChainRig):
             self.rig_org_bone(*args)
 
     def rig_org_bone(self, i, org, ik):
-        if i == 0:
-            self.make_constraint(org, 'COPY_LOCATION', ik)
-
-        if self.use_radius:
-            self.make_constraint(org, 'COPY_SCALE', self.bones.ctrl.master, space='WORLD')
-            self.make_constraint(org, 'COPY_SCALE', ik, use_y=False, use_offset=True, space='LOCAL')
-
-        self.make_constraint(org, 'COPY_ROTATION', ik)
-        self.make_constraint(org, 'STRETCH_TO', ik, head_tail=1.0)
+        self.make_constraint(org, 'COPY_TRANSFORMS', ik)
 
     ##############################
     # UI
