@@ -372,7 +372,7 @@ class Rig(SimpleChainRig):
         hook.object = self.obj
         hook.subtarget = ctrl
         hook.center = bone.head
-        hook.assign_vertices([i*3, i*3+1, i*3+2])
+        hook.vertex_indices_set([i*3, i*3 + 1, i*3 + 2])
 
         if subtype > 0:
             self.rig_enable_control_driver(hook, 'show_viewport', subtype, index)
@@ -382,7 +382,7 @@ class Rig(SimpleChainRig):
             hook.object = self.obj
             hook.subtarget = self.tip_controls[subtype]
             hook.center = bone.head
-            hook.assign_vertices([i*3, i*3+1, i*3+2])
+            hook.vertex_indices_set([i*3, i*3 + 1, i*3 + 2])
 
             self.rig_enable_control_driver(hook, 'show_viewport', subtype, index, disable=True)
             self.rig_enable_control_driver(hook, 'show_render', subtype, index, disable=True)
