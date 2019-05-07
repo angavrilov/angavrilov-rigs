@@ -8,6 +8,7 @@ from rigify.utils.errors import MetarigError
 from rigify.utils.naming import strip_org, make_derived_name
 from rigify.utils.bones import put_bone
 from rigify.utils.mechanism import make_driver, make_constraint, driver_var_transform
+from rigify.utils.widgets import create_widget
 from rigify.utils.widgets_basic import create_circle_widget, create_sphere_widget
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.misc import map_list, map_apply
@@ -140,6 +141,8 @@ class Rig(SimpleChainRig):
     #     List of main spline controls (always visible and active).
     #   start, end:
     #     List of extra spline controls attached to the tip main ones (can disable).
+    #   start_twist, end_twist:
+    #     Twist controls at the ends of the tentacle.
     # mch:
     #   start_parent, end_parent
     #     Intermediate bones for parenting extra controls - discards scale of the main.
@@ -186,6 +189,58 @@ class Rig(SimpleChainRig):
     def make_master_control_widget(self):
         master_name = self.bones.ctrl.master
         create_gear_widget(self.obj, master_name, size=5.0)
+
+    ##############################
+    # Twist controls
+
+    @stage_generate_bones
+    def make_twist_control_bones(self):
+        self.bones.ctrl.start_twist = self.make_twist_control_bone('start-twist', 1.35)
+        self.bones.ctrl.end_twist = self.make_twist_control_bone('end-twist', 1.15)
+
+    def make_twist_control_bone(self, name, size):
+        name = self.copy_bone(self.bones.org[0], self.make_name(name))
+        self.get_bone(name).length = self.avg_length * size
+        return name
+
+    @stage_parent_bones
+    def parent_twist_control_bones(self):
+        self.set_bone_parent(self.bones.ctrl.start_twist, self.bones.ctrl.master)
+        self.set_bone_parent(self.bones.ctrl.end_twist, self.bones.ctrl.start_twist)
+
+    @stage_configure_bones
+    def configure_twist_control_bones(self):
+        self.configure_twist_control_bone(self.bones.ctrl.start_twist)
+        self.configure_twist_control_bone(self.bones.ctrl.end_twist)
+
+    def configure_twist_control_bone(self, name):
+        bone = self.get_bone(name)
+        bone.rotation_mode = 'XYZ'
+        bone.lock_location = (True, True, True)
+        bone.lock_rotation = (True, False, True)
+        bone.lock_scale = (True, True, True)
+
+    @stage_rig_bones
+    def rig_twist_control_bones(self):
+        # Copy the location of the end bone to provide more convenient tool behavior.
+        self.make_constraint(self.bones.ctrl.end_twist, 'COPY_LOCATION', self.bones.org[-1], head_tail=1.0)
+
+    @stage_generate_widgets
+    def make_twist_control_widgets(self):
+        self.make_twist_control_widget(self.bones.ctrl.start_twist, self.bones.org[0], False)
+        self.make_twist_control_widget(self.bones.ctrl.end_twist, self.bones.org[-1], True)
+
+    def make_twist_control_widget(self, ctrl, org, is_end):
+        bone = self.get_bone(ctrl)
+        bone_org = self.get_bone(org)
+
+        pos = 1.0 if is_end else 0.0
+        scale = bone_org.length / bone.length
+
+        bone.custom_shape_transform = bone_org
+        bone.custom_shape_scale = scale
+
+        create_twist_widget(self.obj, ctrl, size=1/scale, head_tail=pos)
 
     ##############################
     # Spline controls
@@ -427,16 +482,32 @@ class Rig(SimpleChainRig):
     @stage_parent_bones
     def parent_mch_ik_chain(self):
         self.parent_bone_chain(self.bones.mch.ik, use_connect=True)
-        self.set_bone_parent(self.bones.mch.ik[0], self.bones.ctrl.master)
+        self.set_bone_parent(self.bones.mch.ik[0], self.bones.ctrl.start_twist)
 
     @stage_rig_bones
     def rig_mch_ik_chain(self):
-        ik = self.bones.mch.ik
-        ik_bone = self.get_bone(ik[-1])
+        for i, args in enumerate(zip(self.bones.mch.ik)):
+            self.rig_mch_ik_bone(i, *args)
+
+        self.rig_mch_ik_constraint(self.bones.mch.ik[-1])
+
+    def rig_mch_ik_bone(self, i, mch):
+        bone = self.get_bone(mch)
+        bone.rotation_mode = 'XYZ'
+
+        if i > 0:
+            self.make_driver(
+                bone, 'rotation_euler', index=1,
+                expression = 'var0 / %d' % (len(self.bones.mch.ik) - 1),
+                variables=[(self.bones.ctrl.end_twist, '.rotation_euler.y')]
+            )
+
+    def rig_mch_ik_constraint(self, mch):
+        ik_bone = self.get_bone(mch)
 
         make_constraint(
             ik_bone, 'SPLINE_IK', self.spline_obj,
-            chain_count = len(ik),
+            chain_count = len(self.bones.mch.ik),
             use_curve_radius = True,
             y_scale_mode = 'FIT_CURVE',
             xz_scale_mode = 'NONE',
@@ -515,6 +586,74 @@ class Rig(SimpleChainRig):
         col.prop(params, 'sik_max_radius')
 
         ControlLayersOption.TWEAK.parameters_ui(layout, params)
+
+
+def create_twist_widget(rig, bone_name, size=1.0, head_tail=0.5, bone_transform_name=None):
+    obj = create_widget(rig, bone_name, bone_transform_name)
+    if obj != None:
+        verts = [(0.3429814279079437*size, head_tail, 0.22917263209819794*size),
+                 (0.38110050559043884*size, head_tail-0.05291016772389412*size, 0.15785686671733856*size),
+                 (0.40457412600517273*size, head_tail-0.05291016772389412*size, 0.08047471195459366*size),
+                 (0.41250014305114746*size, head_tail-0.05291016772389412*size, -2.671097298900804e-08*size),
+                 (0.40457412600517273*size, head_tail-0.05291016772389412*size, -0.08047476410865784*size),
+                 (0.38110050559043884*size, head_tail-0.05291016772389412*size, -0.15785691142082214*size),
+                 (0.3429814279079437*size, head_tail, -0.22917278110980988*size),
+                 (0.22917293012142181*size, head_tail, -0.3429813086986542*size),
+                 (0.1578570008277893*size, head_tail-0.05291016772389412*size, -0.3811003565788269*size),
+                 (0.0804748609662056*size, head_tail-0.05291016772389412*size, -0.4045739769935608*size),
+                 (5.8895523125102045e-08*size, head_tail-0.05291026830673218*size, -0.4124999940395355*size),
+                 (-0.08047471195459366*size, head_tail-0.05291016772389412*size, -0.4045739769935608*size),
+                 (-0.15785688161849976*size, head_tail-0.05291016772389412*size, -0.38110026717185974*size),
+                 (-0.22917267680168152*size, head_tail, -0.3429811894893646*size),
+                 (-0.34298115968704224*size, head_tail, -0.22917254269123077*size),
+                 (-0.38110023736953735*size, head_tail-0.05291016772389412*size, -0.15785665810108185*size),
+                 (-0.4045737385749817*size, head_tail-0.05291016772389412*size, -0.08047446608543396*size),
+                 (-0.4124998152256012*size, head_tail-0.05291016772389412*size, 3.4045575603158795e-07*size),
+                 (-0.40457355976104736*size, head_tail-0.05291016772389412*size, 0.08047513663768768*size),
+                 (-0.3810998201370239*size, head_tail-0.05291016772389412*size, 0.1578572690486908*size),
+                 (-0.34298068284988403*size, head_tail, 0.22917301952838898*size),
+                 (-0.2291719913482666*size, head_tail, 0.34298139810562134*size),
+                 (-0.15785618126392365*size, head_tail-0.05291016772389412*size, 0.38110047578811646*size),
+                 (-0.08047392964363098*size, head_tail-0.05291016772389412*size, 0.40457388758659363*size),
+                 (8.555148269806523e-07*size, head_tail-0.05291016772389412*size, 0.41249993443489075*size),
+                 (0.08047562092542648*size, head_tail-0.05291016772389412*size, 0.4045736789703369*size),
+                 (0.15785779058933258*size, head_tail-0.05291016772389412*size, 0.3810998797416687*size),
+                 (0.22917351126670837*size, head_tail, 0.3429807126522064*size),
+                 (0.38110050559043884*size, head_tail+0.05290994420647621*size, 0.15785686671733856*size),
+                 (0.40457412600517273*size, head_tail+0.05290994420647621*size, 0.08047470450401306*size),
+                 (0.41250014305114746*size, head_tail+0.05290994420647621*size, -3.1336515604607484e-08*size),
+                 (0.40457412600517273*size, head_tail+0.05290994420647621*size, -0.08047477155923843*size),
+                 (0.38110050559043884*size, head_tail+0.05290994420647621*size, -0.15785691142082214*size),
+                 (0.1578570008277893*size, head_tail+0.05290994420647621*size, -0.3811003565788269*size),
+                 (0.0804748609662056*size, head_tail+0.05290994420647621*size, -0.4045739769935608*size),
+                 (5.8895523125102045e-08*size, head_tail+0.05290984362363815*size, -0.4124999940395355*size),
+                 (-0.08047471195459366*size, head_tail+0.05290994420647621*size, -0.4045739769935608*size),
+                 (-0.15785688161849976*size, head_tail+0.05290994420647621*size, -0.38110026717185974*size),
+                 (-0.38110023736953735*size, head_tail+0.05290994420647621*size, -0.15785665810108185*size),
+                 (-0.4045737385749817*size, head_tail+0.05290994420647621*size, -0.08047447353601456*size),
+                 (-0.4124998152256012*size, head_tail+0.05290994420647621*size, 3.35830208086918e-07*size),
+                 (-0.40457355976104736*size, head_tail+0.05290994420647621*size, 0.08047512918710709*size),
+                 (-0.3810998201370239*size, head_tail+0.05290994420647621*size, 0.1578572690486908*size),
+                 (-0.15785618126392365*size, head_tail+0.05290994420647621*size, 0.38110047578811646*size),
+                 (-0.08047392964363098*size, head_tail+0.05290994420647621*size, 0.40457388758659363*size),
+                 (8.555148269806523e-07*size, head_tail+0.05290994420647621*size, 0.41249993443489075*size),
+                 (0.08047562092542648*size, head_tail+0.05290994420647621*size, 0.4045736789703369*size),
+                 (0.15785779058933258*size, head_tail+0.05290994420647621*size, 0.3810998797416687*size), ]
+        edges = [(1, 0), (2, 1), (2, 3), (3, 4), (5, 4), (5, 6), (7, 8), (9, 8), (10, 9), (10, 11),
+                 (12, 11), (12, 13), (14, 15), (16, 15), (16, 17), (17, 18), (19, 18), (20, 19),
+                 (28, 0), (21, 22), (23, 22), (23, 24), (24, 25), (26, 25), (26, 27), (47, 27),
+                 (29, 28), (29, 30), (30, 31), (32, 31), (32, 6), (34, 33), (35, 34), (35, 36),
+                 (37, 36), (7, 33), (37, 13), (39, 38), (39, 40), (40, 41), (42, 41), (14, 38),
+                 (20, 42), (44, 43), (44, 45), (45, 46), (47, 46), (21, 43),]
+        faces = []
+
+        mesh = obj.data
+        mesh.from_pydata(verts, edges, faces)
+        mesh.update()
+        mesh.update()
+        return obj
+    else:
+        return None
 
 
 def create_sample(obj):
