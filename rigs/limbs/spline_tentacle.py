@@ -20,6 +20,8 @@ from rigify.rigs.widgets import create_gear_widget
 
 from itertools import count, repeat
 
+from ...follow_parent import FollowParentBuilder
+
 
 class Rig(SimpleChainRig):
     ##############################
@@ -164,6 +166,8 @@ class Rig(SimpleChainRig):
         self.bones.ctrl.master = name
         self.get_bone(name).length = self.avg_length * 1.5
 
+        FollowParentBuilder(self.generator).register_parent(self, name)
+
     @stage_configure_bones
     def configure_master_control_bone(self):
         master = self.bones.ctrl.master
@@ -282,6 +286,8 @@ class Rig(SimpleChainRig):
         self.bones.ctrl.end = map_list(self.make_extra_control_bone, self.end_control_poslist, count(0), repeat('end'))
 
         self.make_all_controls_list()
+        self.make_mch_extra_parent_bones()
+        self.make_control_follows()
 
     def make_all_controls_list(self):
         main_controls = [(bone, 0, i) for i, bone in enumerate(self.bones.ctrl.main)]
@@ -290,6 +296,18 @@ class Rig(SimpleChainRig):
 
         self.tip_controls = [None, self.bones.ctrl.main[0], self.bones.ctrl.main[-1]]
         self.all_controls = [main_controls[0], *reversed(start_controls), *main_controls[1:-1], *end_controls, main_controls[-1]]
+
+    def make_control_follows(self):
+        fp_builder = FollowParentBuilder(self.generator)
+
+        extra_table = [
+            [],
+            [(self.bones.mch.get('start_parent', None), self.bones.ctrl.main[0])],
+            [(self.bones.mch.get('end_parent', None), self.bones.ctrl.main[-1])],
+        ]
+
+        for (bone, subtype, index) in self.all_controls[1:]:
+            fp_builder.build_child(self, bone, extra_parents=extra_table[subtype])
 
     def make_main_control_bone(self, pos_spec, i):
         name = self.get_main_control_name(i)
@@ -300,16 +318,7 @@ class Rig(SimpleChainRig):
 
     @stage_parent_bones
     def parent_control_chain(self):
-        main_bones = self.bones.ctrl.main
-        map_apply(self.parent_main_control_bone, main_bones)
-        map_apply(self.parent_extra_control_bone, self.bones.ctrl.start, repeat(self.bones.mch.start_parent))
-        map_apply(self.parent_extra_control_bone, self.bones.ctrl.end, repeat(self.bones.mch.end_parent))
-
-    def parent_main_control_bone(self, ctrl):
-        self.set_bone_parent(ctrl, self.bones.ctrl.master)
-
-    def parent_extra_control_bone(self, ctrl, base):
-        self.set_bone_parent(ctrl, base)
+        self.set_bone_parent(self.bones.ctrl.main[0], self.bones.ctrl.master)
 
     @stage_configure_bones
     def configure_control_chain(self):
@@ -355,8 +364,7 @@ class Rig(SimpleChainRig):
     ##############################
     # Spline tip parent MCH
 
-    # IN-STAGE DEPENDS ON make_control_chain
-    @stage_generate_bones
+    # Called by make_control_chain
     def make_mch_extra_parent_bones(self):
         if len(self.start_control_poslist) > 0:
             self.bones.mch.start_parent = self.make_mch_extra_parent_bone(self.bones.ctrl.main[0])
