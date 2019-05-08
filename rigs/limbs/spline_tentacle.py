@@ -248,11 +248,10 @@ class Rig(SimpleChainRig):
             self.rig_mch_end_stretch_bone(self.bones.mch.end_stretch, self.bones.ctrl.end_twist)
 
     def rig_mch_end_stretch_bone(self, mch, ctrl):
-        expr = 'pow(max(1e-5, var0), 1/%d)' % (len(self.bones.mch.ik))
-
-        self.make_driver(mch, 'scale', index=0, expression=expr, variables=[(ctrl, '.scale.x')])
-        self.make_driver(mch, 'scale', index=1, expression=expr, variables=[(ctrl, '.scale.y')])
-        self.make_driver(mch, 'scale', index=2, expression=expr, variables=[(ctrl, '.scale.z')])
+        # Break the dependency cycle caused by COPY_LOCATION above by copying raw properties.
+        self.make_driver(mch, 'scale', index=0, variables=[(ctrl, '.scale.x')])
+        self.make_driver(mch, 'scale', index=1, variables=[(ctrl, '.scale.y')])
+        self.make_driver(mch, 'scale', index=2, variables=[(ctrl, '.scale.z')])
 
         self.make_constraint(mch, 'MAINTAIN_VOLUME', mode='UNIFORM', owner_space='LOCAL')
 
@@ -508,7 +507,9 @@ class Rig(SimpleChainRig):
         self.bones.mch.ik = map_list(self.make_mch_ik_bone, self.bones.org)
 
     def make_mch_ik_bone(self, org):
-        return self.copy_bone(org, make_derived_name(org, 'mch', '.ik'))
+        name = self.copy_bone(org, make_derived_name(org, 'mch', '.ik'))
+        self.get_bone(name).use_inherit_scale = False
+        return name
 
     @stage_parent_bones
     def parent_mch_ik_chain(self):
@@ -525,16 +526,21 @@ class Rig(SimpleChainRig):
     def rig_mch_ik_bone(self, i, mch):
         self.get_bone(mch).rotation_mode = 'XYZ'
 
+        num_ik = len(self.bones.mch.ik)
+
         self.make_driver(
             mch, 'rotation_euler', index=1,
-            expression = 'var0 / %d' % (len(self.bones.mch.ik)),
-            variables=[(self.bones.ctrl.end_twist, '.rotation_euler.y')]
+            expression = 'var / %d' % (num_ik),
+            variables = [(self.bones.ctrl.end_twist, '.rotation_euler.y')]
         )
+
+        self.make_constraint(mch, 'COPY_SCALE', self.bones.ctrl.start_twist)
 
         if self.use_stretch:
             self.make_constraint(
                 mch, 'COPY_SCALE', self.bones.mch.end_stretch,
-                use_offset=True, space='LOCAL'
+                use_offset = True, space = 'LOCAL',
+                power = (i + 1) / num_ik
             )
 
     def rig_mch_ik_constraint(self, mch):
