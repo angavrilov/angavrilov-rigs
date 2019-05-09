@@ -181,8 +181,8 @@ class Rig(SimpleChainRig):
                 description="Enabled extra start controls"
             )
 
-            self.script.add_panel_selected_check(ctrls)
-            self.script.add_panel_custom_prop(master, 'start_controls', text="Start Controls")
+            panel = self.script.panel_with_selected_check(ctrls)
+            panel.custom_prop(master, 'start_controls', text="Start Controls")
 
         if self.params.sik_end_controls > 0:
             self.make_property(
@@ -191,8 +191,8 @@ class Rig(SimpleChainRig):
                 description="Enabled extra end controls"
             )
 
-            self.script.add_panel_selected_check(ctrls)
-            self.script.add_panel_custom_prop(master, 'end_controls', text="End Controls")
+            panel = self.script.panel_with_selected_check(ctrls)
+            panel.custom_prop(master, 'end_controls', text="End Controls")
 
     @stage_generate_widgets
     def make_master_control_widget(self):
@@ -307,7 +307,7 @@ class Rig(SimpleChainRig):
         ]
 
         for (bone, subtype, index) in self.all_controls[1:]:
-            fp_builder.build_child(self, bone, extra_parents=extra_table[subtype])
+            fp_builder.build_child(self, bone, extra_parents=extra_table[subtype], no_fix_scale=True)
 
     def make_main_control_bone(self, pos_spec, i):
         name = self.get_main_control_name(i)
