@@ -20,7 +20,7 @@ from rigify.rigs.widgets import create_gear_widget
 
 from itertools import count, repeat
 
-from ...follow_parent import FollowParentBuilder
+from ...switch_parent import SwitchParentBuilder
 
 
 class Rig(SimpleChainRig):
@@ -166,7 +166,7 @@ class Rig(SimpleChainRig):
         self.bones.ctrl.master = name
         self.get_bone(name).length = self.avg_length * 1.5
 
-        FollowParentBuilder(self.generator).register_parent(self, name)
+        SwitchParentBuilder(self.generator).register_parent(self, name)
 
     @stage_configure_bones
     def configure_master_control_bone(self):
@@ -287,7 +287,7 @@ class Rig(SimpleChainRig):
 
         self.make_all_controls_list()
         self.make_mch_extra_parent_bones()
-        self.make_control_follows()
+        self.make_controls_switch_parent()
 
     def make_all_controls_list(self):
         main_controls = [(bone, 0, i) for i, bone in enumerate(self.bones.ctrl.main)]
@@ -297,8 +297,8 @@ class Rig(SimpleChainRig):
         self.tip_controls = [None, self.bones.ctrl.main[0], self.bones.ctrl.main[-1]]
         self.all_controls = [main_controls[0], *reversed(start_controls), *main_controls[1:-1], *end_controls, main_controls[-1]]
 
-    def make_control_follows(self):
-        fp_builder = FollowParentBuilder(self.generator)
+    def make_controls_switch_parent(self):
+        builder = SwitchParentBuilder(self.generator)
 
         extra_table = [
             [],
@@ -307,7 +307,7 @@ class Rig(SimpleChainRig):
         ]
 
         for (bone, subtype, index) in self.all_controls[1:]:
-            fp_builder.build_child(self, bone, extra_parents=extra_table[subtype], no_fix_scale=True)
+            builder.build_child(self, bone, extra_parents=extra_table[subtype], no_fix_scale=True)
 
     def make_main_control_bone(self, pos_spec, i):
         name = self.get_main_control_name(i)

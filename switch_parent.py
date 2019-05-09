@@ -35,14 +35,14 @@ def _rig_is_child(rig, parent):
     return False
 
 
-class FollowParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
+class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
     """
-    Implements centralized generation of switchable follow parent controls.
+    Implements centralized generation of switchable parent mechanisms.
     Allows all rigs to register their bones as possible parents for other rigs.
     """
 
     def __init__(self, generator):
-        super(FollowParentBuilder,self).__init__(generator)
+        super(SwitchParentBuilder,self).__init__(generator)
 
         self.child_list = []
         self.global_parents = []
@@ -86,7 +86,7 @@ class FollowParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
                     prop_bone=None, prop_id=None, prop_name=None, controls=None,
                     ctrl_bone=None, no_fix_loc=False, no_fix_rot=False, no_fix_scale=False):
         """
-        Build a switchable follow parent mechanism for the specified bone.
+        Build a switchable parent mechanism for the specified bone.
 
         Parameters:
           rig               Owner of the child bone.
@@ -214,10 +214,10 @@ class FollowParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
         script = self.generator.script
         panel = self.generator.script.panel_with_selected_check(controls)
 
-        script.add_utilities(UTILITIES_FUNC_SET_TRF_WITH_LOCKS + UTILITIES_OP_FOLLOW_PARENT)
-        script.register_classes(REGISTER_OP_FOLLOW_PARENT)
+        script.add_utilities(UTILITIES_FUNC_SET_TRF_WITH_LOCKS + UTILITIES_OP_SWITCH_PARENT)
+        script.register_classes(REGISTER_OP_SWITCH_PARENT)
 
-        op_name = 'pose.rigify_switch_follow_parent_' + self.generator.rig_id
+        op_name = 'pose.rigify_switch_parent_' + self.generator.rig_id
         op_props = {
             'bone': child['ctrl_bone'] or bone, 'prop_bone': prop_bone, 'prop_id': prop_id,
             'parent_names': json.dumps(parent_names), 'locks': child['no_fix']
@@ -238,7 +238,7 @@ class FollowParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
         child['is_done'] = True
 
         # Implement via an Armature constraint
-        con = self.make_constraint(child['mch_bone'], 'ARMATURE', name='FOLLOW_PARENT')
+        con = self.make_constraint(child['mch_bone'], 'ARMATURE', name='SWITCH_PARENT')
 
         prop_var = [(child['prop_bone'], child['prop_id'])]
 
@@ -253,7 +253,7 @@ class FollowParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
             self.make_driver(tgt, 'weight', expression=expr, variables=prop_var)
 
 
-REGISTER_OP_FOLLOW_PARENT = ['Rigify_Switch_Follow_Parent']
+REGISTER_OP_SWITCH_PARENT = ['Rigify_Switch_Parent']
 
 UTILITIES_FUNC_SET_TRF_WITH_LOCKS = ['''
 ####################################
@@ -287,13 +287,13 @@ def set_transform_from_matrix_with_locks(bone, matrix, extra_locks=[False,False,
             bone.scale[i] = val
 ''']
 
-UTILITIES_OP_FOLLOW_PARENT = ['''
-########################################
-## Switchable Follow Parent operators ##
-########################################
+UTILITIES_OP_SWITCH_PARENT = ['''
+################################
+## Switchable Parent operator ##
+################################
 
-class Rigify_Switch_Follow_Parent(bpy.types.Operator):
-    bl_idname = "pose.rigify_switch_follow_parent_" + rig_id
+class Rigify_Switch_Parent(bpy.types.Operator):
+    bl_idname = "pose.rigify_switch_parent_" + rig_id
     bl_label = "Switch Parent (Keep Transform)"
     bl_options = {'UNDO', 'INTERNAL'}
     bl_description = "Switch parent, preserving the bone position and orientation"
@@ -308,7 +308,7 @@ class Rigify_Switch_Follow_Parent(bpy.types.Operator):
 
     selected: bpy.props.EnumProperty(
         name='Selected Parent',
-        items=lambda s,c: Rigify_Switch_Follow_Parent.parent_items
+        items=lambda s,c: Rigify_Switch_Parent.parent_items
     )
 
     def execute(self, context):
@@ -360,7 +360,7 @@ class Rigify_Switch_Follow_Parent(bpy.types.Operator):
         parents = json.loads(self.parent_names)
         pitems = [(str(i), name, name) for i, name in enumerate(parents)]
 
-        Rigify_Switch_Follow_Parent.parent_items = pitems
+        Rigify_Switch_Parent.parent_items = pitems
 
         self.selected = str(pose.bones[self.prop_bone][self.prop_id])
 
