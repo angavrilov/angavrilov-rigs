@@ -238,7 +238,7 @@ class FollowParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
         child['is_done'] = True
 
         # Implement via an Armature constraint
-        con = self.make_constraint(child['mch_bone'], 'ARMATURE')
+        con = self.make_constraint(child['mch_bone'], 'ARMATURE', name='FOLLOW_PARENT')
 
         prop_var = [(child['prop_bone'], child['prop_id'])]
 
@@ -368,5 +368,6 @@ class Rigify_Switch_Follow_Parent(bpy.types.Operator):
 
     def draw(self, _context):
         layout = self.layout
-        layout.prop(self, 'selected', text='')
+        col = layout.column()
+        col.prop(self, 'selected', expand=True)
 ''']
