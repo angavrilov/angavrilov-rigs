@@ -34,7 +34,7 @@ class Rig(SimpleChainRig):
         org_bones = [self.get_bone(org) for org in org_chain]
 
         # Compute master bone name: inherit .LR suffix, but strip trailing digits
-        name_parts = re.match(r'^(.*?)(?:([._-])?\d+)?((?:[._-][LlRr])?)(?:\.\d+)?$', strip_org(org_chain[0]))
+        name_parts = re.match(r'^(.*?)(?:([._-])\d+)?((?:[._-][LlRr])?)(?:\.\d+)?$', strip_org(org_chain[0]))
         name_base, name_sep, name_suffix = name_parts.groups()
         name_base += name_sep if name_sep else '-'
 
@@ -65,21 +65,28 @@ class Rig(SimpleChainRig):
         self.num_main_controls = self.params.sik_mid_controls + 2
         main_control_step = self.chain_length / (self.num_main_controls - 1)
 
-        self.main_control_poslist = [self.find_bone_by_length(i * main_control_step)
-                                     for i in range(self.num_main_controls)]
+        self.main_control_poslist = [
+            self.find_bone_by_length(i * main_control_step) + (self.get_main_control_name(i),)
+            for i in range(self.num_main_controls)
+        ]
 
         # Likewise for extra start and end controls
         num_start_controls = self.params.sik_start_controls
         start_control_step = main_control_step * 0.001 / self.org_lengths[0] / max(1, num_start_controls)
 
-        self.start_control_poslist = [(0, (i + 1) * start_control_step)
-                                      for i in reversed(range(num_start_controls))]
+        self.start_control_poslist = [
+            (0, (i + 1) * start_control_step, self.make_name('start%02d' % (idx+1)))
+            for idx, i in enumerate(reversed(range(num_start_controls)))
+        ]
 
         num_end_controls = self.params.sik_end_controls
         end_control_step = main_control_step * 0.001 / self.org_lengths[-1] / max(1, num_end_controls)
+        end_idx = len(org_bones) - 1
 
-        self.end_control_poslist = [(len(org_bones) - 1, 1.0 - (i + 1) * end_control_step)
-                                    for i in reversed(range(num_end_controls))]
+        self.end_control_poslist = [
+            (end_idx, 1.0 - (i + 1) * end_control_step, self.make_name('end%02d' % (idx+1)))
+            for idx, i in enumerate(reversed(range(num_end_controls)))
+        ]
 
         # Radius scaling
         self.use_radius = self.params.sik_radius_scaling
@@ -104,11 +111,13 @@ class Rig(SimpleChainRig):
 
     def get_main_control_name(self, i):
         if i == 0:
-            return 'start'
+            base = 'start'
         elif i == self.num_main_controls - 1:
-            return 'end'
+            base = 'end'
         else:
-            return 'mid%02d' % (i)
+            base = 'mid%02d' % (i)
+
+        return self.make_name(base)
 
     def make_bone_by_spec(self, pos_spec, name, scale):
         "Make a bone positioned along the chain."
@@ -148,8 +157,10 @@ class Rig(SimpleChainRig):
     #   start_twist, end_twist:
     #     Twist controls at the ends of the tentacle.
     # mch:
-    #   start_parent, end_parent
+    #   start_parent, end_parent:
     #     Intermediate bones for parenting extra controls - discards scale of the main.
+    #   start_hooks, end_hooks:
+    #     Proxy bones for extra control hooks.
     #   ik:
     #     Spline IK chain, responsible for extracting the shape of the curve.
     #   end_stretch:
@@ -162,9 +173,10 @@ class Rig(SimpleChainRig):
 
     @stage_generate_bones
     def make_master_control_bone(self):
-        name = self.copy_bone(self.bones.org[0], self.make_name('master'), parent=True)
-        self.bones.ctrl.master = name
-        self.get_bone(name).length = self.avg_length * 1.5
+        name = self.bones.ctrl.master = self.copy_bone(
+            self.bones.org[0], self.make_name('master'), parent=True,
+            length = self.avg_length * 1.5
+        )
 
         SwitchParentBuilder(self.generator).register_parent(self, name)
 
@@ -211,14 +223,10 @@ class Rig(SimpleChainRig):
             self.bones.mch.end_stretch = self.make_mch_end_stretch_bone(self.bones.ctrl.end_twist)
 
     def make_twist_control_bone(self, name, size):
-        name = self.copy_bone(self.bones.org[0], self.make_name(name))
-        self.get_bone(name).length = self.avg_length * size
-        return name
+        return self.copy_bone(self.bones.org[0], self.make_name(name), length=self.avg_length * size)
 
     def make_mch_end_stretch_bone(self, end_ctrl):
-        name = self.copy_bone(end_ctrl, make_derived_name(end_ctrl, 'mch', '.stretch'))
-        self.get_bone(name).length *= 0.5
-        return name
+        return self.copy_bone(end_ctrl, make_derived_name(end_ctrl, 'mch', '.stretch'), scale=0.5)
 
     @stage_parent_bones
     def parent_twist_control_bones(self):
@@ -281,12 +289,11 @@ class Rig(SimpleChainRig):
 
     @stage_generate_bones
     def make_control_chain(self):
-        self.bones.ctrl.main = map_list(self.make_main_control_bone, self.main_control_poslist, count(0))
-        self.bones.ctrl.start = map_list(self.make_extra_control_bone, self.start_control_poslist, count(0), repeat('start'))
-        self.bones.ctrl.end = map_list(self.make_extra_control_bone, self.end_control_poslist, count(0), repeat('end'))
+        self.bones.ctrl.main = map_list(self.make_main_control_bone, self.main_control_poslist)
+        self.bones.ctrl.start = map_list(self.make_extra_control_bone, self.start_control_poslist)
+        self.bones.ctrl.end = map_list(self.make_extra_control_bone, self.end_control_poslist)
 
         self.make_all_controls_list()
-        self.make_mch_extra_parent_bones()
         self.make_controls_switch_parent()
 
     def make_all_controls_list(self):
@@ -294,7 +301,7 @@ class Rig(SimpleChainRig):
         start_controls = [(bone, 1, i) for i, bone in enumerate(self.bones.ctrl.start)]
         end_controls = [(bone, 2, i) for i, bone in enumerate(self.bones.ctrl.end)]
 
-        self.tip_controls = [None, self.bones.ctrl.main[0], self.bones.ctrl.main[-1]]
+        self.tip_controls_table = [None, self.bones.ctrl.main[0], self.bones.ctrl.main[-1]]
         self.all_controls = [main_controls[0], *reversed(start_controls), *main_controls[1:-1], *end_controls, main_controls[-1]]
 
     def make_controls_switch_parent(self):
@@ -309,12 +316,11 @@ class Rig(SimpleChainRig):
         for (bone, subtype, index) in self.all_controls[1:]:
             builder.build_child(self, bone, extra_parents=extra_table[subtype], no_fix_scale=True)
 
-    def make_main_control_bone(self, pos_spec, i):
-        name = self.get_main_control_name(i)
-        return self.make_bone_by_spec(pos_spec, self.make_name(name), 0.80)
+    def make_main_control_bone(self, pos_spec):
+        return self.make_bone_by_spec(pos_spec, pos_spec[2], 0.80)
 
-    def make_extra_control_bone(self, pos_spec, i, namebase):
-        return self.make_bone_by_spec(pos_spec, self.make_name('%s%02d' % (namebase, i+1)), 0.70)
+    def make_extra_control_bone(self, pos_spec):
+        return self.make_bone_by_spec(pos_spec, pos_spec[2], 0.70)
 
     @stage_parent_bones
     def parent_control_chain(self):
@@ -364,38 +370,76 @@ class Rig(SimpleChainRig):
     ##############################
     # Spline tip parent MCH
 
-    # Called by make_control_chain
+    @stage_generate_bones
     def make_mch_extra_parent_bones(self):
         if len(self.start_control_poslist) > 0:
-            self.bones.mch.start_parent = self.make_mch_extra_parent_bone(self.bones.ctrl.main[0])
+            self.bones.mch.start_parent = self.make_mch_extra_parent_bone(self.main_control_poslist[0])
 
         if len(self.end_control_poslist) > 0:
-            self.bones.mch.end_parent = self.make_mch_extra_parent_bone(self.bones.ctrl.main[-1])
+            self.bones.mch.end_parent = self.make_mch_extra_parent_bone(self.main_control_poslist[-1])
 
-    def make_mch_extra_parent_bone(self, base_bone):
-        name = self.copy_bone(base_bone, make_derived_name(base_bone, 'mch', '.psocket'))
-        self.get_bone(name).length *= 0.5
-        return name
+    def make_mch_extra_parent_bone(self, pos_spec):
+        return self.make_bone_by_spec(pos_spec, make_derived_name(pos_spec[2], 'mch', '.psocket'), 0.40)
 
     @stage_parent_bones
     def parent_mch_extra_parent_bones(self):
-        if len(self.start_control_poslist) > 0:
+        if 'start_parent' in self.bones.mch:
             self.set_bone_parent(self.bones.mch.start_parent, self.bones.ctrl.master)
 
-        if len(self.end_control_poslist) > 0:
+        if 'end_parent' in self.bones.mch:
             self.set_bone_parent(self.bones.mch.end_parent, self.bones.ctrl.master)
 
     @stage_rig_bones
     def rig_mch_extra_parent_bones(self):
-        if len(self.start_control_poslist) > 0:
+        if 'start_parent' in self.bones.mch:
             self.rig_mch_extra_parent_bone(self.bones.mch.start_parent, self.bones.ctrl.main[0])
 
-        if len(self.end_control_poslist) > 0:
+        if 'end_parent' in self.bones.mch:
             self.rig_mch_extra_parent_bone(self.bones.mch.end_parent, self.bones.ctrl.main[-1])
 
     def rig_mch_extra_parent_bone(self, bone, ctrl):
         self.make_constraint(bone, 'COPY_LOCATION', ctrl)
         self.make_constraint(bone, 'COPY_ROTATION', ctrl)
+
+    ##############################
+    # Spline extra hook proxy MCH
+
+    @stage_generate_bones
+    def make_mch_extra_hook_bones(self):
+        self.bones.mch.start_hooks = map_list(self.make_mch_extra_hook_bone, self.start_control_poslist)
+        self.bones.mch.end_hooks = map_list(self.make_mch_extra_hook_bone, self.end_control_poslist)
+
+        self.mch_hooks_table = [ None, self.bones.mch.start_hooks, self.bones.mch.end_hooks ]
+
+    def make_mch_extra_hook_bone(self, pos_spec):
+        return self.make_bone_by_spec(pos_spec, make_derived_name(pos_spec[2], 'mch', '.hook'), 0.30)
+
+    @stage_parent_bones
+    def parent_mch_extra_hook_bones(self):
+        for hook in self.bones.mch.start_hooks:
+            self.set_bone_parent(hook, self.bones.mch.start_parent)
+
+        for hook in self.bones.mch.end_hooks:
+            self.set_bone_parent(hook, self.bones.mch.end_parent)
+
+    @stage_rig_bones
+    def rig_mch_extra_hook_bones(self):
+        for (bone, subtype, index) in self.all_controls:
+            hooks = self.mch_hooks_table[subtype]
+            if hooks:
+                self.rig_mch_extra_hook_bone(hooks[index], bone, subtype, index)
+
+    def rig_mch_extra_hook_bone(self, hook, ctrl, subtype, index):
+        tip_ctrl = self.tip_controls_table[subtype]
+
+        con = self.make_constraint(hook, 'COPY_LOCATION', ctrl)
+        self.rig_enable_control_driver(con, 'mute', subtype, index, disable=True)
+
+        con = self.make_constraint(hook, 'COPY_SCALE', ctrl, space='LOCAL')
+        self.rig_enable_control_driver(con, 'mute', subtype, index, disable=True)
+
+        con = self.make_constraint(hook, 'COPY_SCALE', tip_ctrl, space='LOCAL')
+        self.rig_enable_control_driver(con, 'mute', subtype, index, disable=False)
 
     ##############################
     # Spline Object
@@ -461,26 +505,14 @@ class Rig(SimpleChainRig):
                 self.rig_spline_radius_shapekey(i, *info)
 
     def rig_spline_hook(self, i, ctrl, subtype, index):
+        hooks = self.mch_hooks_table[subtype]
         bone = self.get_bone(ctrl)
 
         hook = self.spline_obj.modifiers.new(ctrl, 'HOOK')
         hook.object = self.obj
-        hook.subtarget = ctrl
+        hook.subtarget = hooks[index] if hooks else ctrl
         hook.center = bone.head
         hook.vertex_indices_set([i*3, i*3 + 1, i*3 + 2])
-
-        if subtype > 0:
-            self.rig_enable_control_driver(hook, 'show_viewport', subtype, index)
-            self.rig_enable_control_driver(hook, 'show_render', subtype, index)
-
-            hook = self.spline_obj.modifiers.new(ctrl + "_OFF", 'HOOK')
-            hook.object = self.obj
-            hook.subtarget = self.tip_controls[subtype]
-            hook.center = bone.head
-            hook.vertex_indices_set([i*3, i*3 + 1, i*3 + 2])
-
-            self.rig_enable_control_driver(hook, 'show_viewport', subtype, index, disable=True)
-            self.rig_enable_control_driver(hook, 'show_render', subtype, index, disable=True)
 
     def rig_spline_radius_shapekey(self, i, ctrl, subtype, index):
         key = self.spline_obj.data.shape_keys.key_blocks[i + 1]
@@ -488,24 +520,13 @@ class Rig(SimpleChainRig):
 
         assert key.name == ctrl
 
-        scale_expr = 'scale'
-        var_map = {
-            'scale': driver_var_transform(self.obj, ctrl, type='SCALE_AVG', space='LOCAL')
-        }
+        hooks = self.mch_hooks_table[subtype]
+        target = hooks[index] if hooks else ctrl
 
-        if switch_prop:
-            base = self.tip_controls[subtype]
-            scale_expr += ' if active > %d else base_scale' % (index)
-            var_map.update({
-                'base_scale': driver_var_transform(self.obj, base, type='SCALE_AVG', space='LOCAL'),
-                'active': (self.obj, self.bones.ctrl.master, switch_prop)
-            })
+        expr = '1 - var / %.2f' % (self.max_curve_radius)
+        scale_var = [driver_var_transform(self.obj, target, type='SCALE_AVG', space='LOCAL')]
 
-        make_driver(
-            key, 'value',
-            expression='1 - (%s) / %.2f' % (scale_expr, self.max_curve_radius),
-            variables=var_map
-        )
+        make_driver(key, 'value', expression=expr, variables=scale_var)
 
     ##############################
     # Spline IK Chain
