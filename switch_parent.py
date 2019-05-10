@@ -167,7 +167,7 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
                         continue
                 else:
                     # Required to be a child of the rig
-                    if _rig_is_child(child_rig, parent['rig']):
+                    if not _rig_is_child(child_rig, parent['rig']):
                         continue
 
                 parent['used'] = True

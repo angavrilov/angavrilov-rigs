@@ -55,11 +55,20 @@ class Rig(SimpleChainRig):
                 if self.spline_obj.parent and self.spline_obj.parent != self.obj:
                     raise MetarigError("Object '%s' already exists and is not a child of the rig." % (self.spline_name))
 
+        # Options
+        self.use_stretch = (self.params.sik_stretch_control == 'MANUAL_STRETCH')
+        self.use_tip = (self.params.sik_stretch_control == 'DIRECT_TIP')
+
         # Compute org chain lengths and control distribution
+        if self.use_tip:
+            org_bones.pop()
+
         self.org_lengths = [bone.length for bone in org_bones]
         self.org_totlengths = list(itertools.accumulate(self.org_lengths))
         self.chain_length = self.org_totlengths[-1]
-        self.avg_length = self.chain_length / len(org_chain)
+        self.avg_length = self.chain_length / len(org_bones)
+
+        end_idx = len(org_bones) - 1
 
         # Find which bones hold main controls
         self.num_main_controls = self.params.sik_mid_controls + 2
@@ -72,27 +81,34 @@ class Rig(SimpleChainRig):
 
         # Likewise for extra start and end controls
         num_start_controls = self.params.sik_start_controls
-        start_control_step = main_control_step * 0.001 / self.org_lengths[0] / max(1, num_start_controls)
+        start_range = main_control_step / self.org_lengths[0]
+        start_control_step = start_range * 0.001 / max(1, num_start_controls)
 
         self.start_control_poslist = [
             (0, (i + 1) * start_control_step, self.make_name('start%02d' % (idx+1)))
             for idx, i in enumerate(reversed(range(num_start_controls)))
         ]
 
-        num_end_controls = self.params.sik_end_controls
-        end_control_step = main_control_step * 0.001 / self.org_lengths[-1] / max(1, num_end_controls)
-        end_idx = len(org_bones) - 1
+        num_end_controls = self.params.sik_end_controls + (1 if self.use_tip else 0)
+        end_range = main_control_step / self.org_lengths[-1]
+        end_control_step = end_range * 0.001 / max(1, num_end_controls)
 
         self.end_control_poslist = [
             (end_idx, 1.0 - (i + 1) * end_control_step, self.make_name('end%02d' % (idx+1)))
             for idx, i in enumerate(reversed(range(num_end_controls)))
         ]
 
+        # Adjust control bindings if using manual tip control
+        if self.use_tip:
+            tip = self.main_control_poslist[-1]
+            self.main_control_poslist[-1] = (end_idx+1, 0, strip_org(org_chain[-1]))
+
+            tip_extra = self.end_control_poslist[0]
+            self.end_control_poslist[0] = (end_idx, max(0, 1 - end_range * 0.25), self.make_name('end'))
+
         # Radius scaling
         self.use_radius = self.params.sik_radius_scaling
         self.max_curve_radius = self.params.sik_max_radius if self.use_radius else 1.0
-
-        self.use_stretch = self.params.sik_stretch_control
 
 
     ##############################
@@ -135,6 +151,11 @@ class Rig(SimpleChainRig):
 
     def rig_enable_control_driver(self, owner, prop, subtype, index, disable=False):
         if subtype != 0:
+            if self.use_tip and subtype == 2:
+                if index == 0:
+                    return
+                index -= 1
+
             master = self.bones.ctrl.master
             varprop = self.ENABLE_CONTROL_PROPERTY[subtype]
 
@@ -154,8 +175,8 @@ class Rig(SimpleChainRig):
     #     List of main spline controls (always visible and active).
     #   start, end:
     #     List of extra spline controls attached to the tip main ones (can disable).
-    #   start_twist, end_twist:
-    #     Twist controls at the ends of the tentacle.
+    #   end_twist:
+    #     Twist control at the end of the tentacle.
     # mch:
     #   start_parent, end_parent:
     #     Intermediate bones for parenting extra controls - discards scale of the main.
@@ -163,8 +184,12 @@ class Rig(SimpleChainRig):
     #     Proxy bones for extra control hooks.
     #   ik:
     #     Spline IK chain, responsible for extracting the shape of the curve.
+    #   ik_final:
+    #     Final IK result, equal to ik, or different chain with tip_fix.
     #   end_stretch:
     #     Bone used in distributing the end twist control scaling over the chain.
+    #   tip_fix_parent, tip_fix
+    #     Bones used to match tip control rotation and scale.
     #
     ##############################
 
@@ -173,12 +198,20 @@ class Rig(SimpleChainRig):
 
     @stage_generate_bones
     def make_master_control_bone(self):
-        name = self.bones.ctrl.master = self.copy_bone(
+        self.bones.ctrl.master = self.copy_bone(
             self.bones.org[0], self.make_name('master'), parent=True,
             length = self.avg_length * 1.5
         )
 
-        SwitchParentBuilder(self.generator).register_parent(self, name)
+        self.register_parents()
+
+    def register_parents(self):
+        builder = SwitchParentBuilder(self.generator)
+
+        builder.register_parent(self, self.bones.ctrl.master)
+
+        if self.use_tip:
+            builder.register_parent(self, self.bones.org[-1], exclude_self=True)
 
     @stage_configure_bones
     def configure_master_control_bone(self):
@@ -216,8 +249,8 @@ class Rig(SimpleChainRig):
 
     @stage_generate_bones
     def make_twist_control_bones(self):
-        self.bones.ctrl.start_twist = self.make_twist_control_bone('start-twist', 1.35)
-        self.bones.ctrl.end_twist = self.make_twist_control_bone('end-twist', 1.15)
+        if not self.use_tip:
+            self.bones.ctrl.end_twist = self.make_twist_control_bone('end-twist', 1.15)
 
         if self.use_stretch:
             self.bones.mch.end_stretch = self.make_mch_end_stretch_bone(self.bones.ctrl.end_twist)
@@ -230,16 +263,16 @@ class Rig(SimpleChainRig):
 
     @stage_parent_bones
     def parent_twist_control_bones(self):
-        self.set_bone_parent(self.bones.ctrl.start_twist, self.bones.ctrl.master)
-        self.set_bone_parent(self.bones.ctrl.end_twist, self.bones.ctrl.master)
+        if not self.use_tip:
+            self.set_bone_parent(self.bones.ctrl.end_twist, self.bones.ctrl.master)
 
         if self.use_stretch:
             self.set_bone_parent(self.bones.mch.end_stretch, self.bones.ctrl.master)
 
     @stage_configure_bones
     def configure_twist_control_bones(self):
-        self.configure_twist_control_bone(self.bones.ctrl.start_twist)
-        self.configure_twist_control_bone(self.bones.ctrl.end_twist)
+        if not self.use_tip:
+            self.configure_twist_control_bone(self.bones.ctrl.end_twist)
 
     def configure_twist_control_bone(self, name):
         bone = self.get_bone(name)
@@ -251,12 +284,11 @@ class Rig(SimpleChainRig):
 
     @stage_rig_bones
     def rig_twist_control_bones(self):
-        # Copy the location of the end bone to provide more convenient tool behavior.
-        self.make_constraint(self.bones.ctrl.end_twist, 'COPY_LOCATION', self.bones.org[-1])
+        if not self.use_tip:
+            # Copy the location of the end bone to provide more convenient tool behavior.
+            self.make_constraint(self.bones.ctrl.end_twist, 'COPY_LOCATION', self.bones.org[-1])
 
         if self.use_stretch:
-            self.make_constraint(self.bones.ctrl.start_twist, 'MAINTAIN_VOLUME', mode='UNIFORM', owner_space='LOCAL')
-
             self.rig_mch_end_stretch_bone(self.bones.mch.end_stretch, self.bones.ctrl.end_twist)
 
     def rig_mch_end_stretch_bone(self, mch, ctrl):
@@ -269,20 +301,19 @@ class Rig(SimpleChainRig):
 
     @stage_generate_widgets
     def make_twist_control_widgets(self):
-        self.make_twist_control_widget(self.bones.ctrl.start_twist, self.bones.org[0], False)
-        self.make_twist_control_widget(self.bones.ctrl.end_twist, self.bones.org[-1], True)
+        if not self.use_tip:
+            self.make_twist_control_widget(self.bones.ctrl.end_twist, self.bones.org[-1], 0.75)
 
-    def make_twist_control_widget(self, ctrl, org, is_end):
+    def make_twist_control_widget(self, ctrl, org, size=1.0, head_tail=0.5):
         bone = self.get_bone(ctrl)
         bone_org = self.get_bone(org)
 
-        pos = 0.75 if is_end else 0.25
         scale = bone_org.length / bone.length
 
         bone.custom_shape_transform = bone_org
         bone.custom_shape_scale = scale
 
-        create_twist_widget(self.obj, ctrl, size=1/scale, head_tail=pos)
+        create_twist_widget(self.obj, ctrl, size=size/scale, head_tail=head_tail)
 
     ##############################
     # Spline controls
@@ -307,20 +338,19 @@ class Rig(SimpleChainRig):
     def make_controls_switch_parent(self):
         builder = SwitchParentBuilder(self.generator)
 
-        extra_table = [
-            [],
-            lambda: [(self.bones.mch.start_parent, self.bones.ctrl.main[0])],
-            lambda: [(self.bones.mch.end_parent, self.bones.ctrl.main[-1])],
-        ]
+        start_extra = lambda: [(self.bones.mch.start_parent, self.bones.ctrl.main[0])]
+        end_extra = lambda: [(self.bones.mch.end_parent, self.bones.ctrl.main[-1])]
+
+        extra_table = [ [], start_extra, end_extra ]
 
         for (bone, subtype, index) in self.all_controls[1:]:
             builder.build_child(self, bone, extra_parents=extra_table[subtype], no_fix_scale=True)
 
     def make_main_control_bone(self, pos_spec):
-        return self.make_bone_by_spec(pos_spec, pos_spec[2], 0.80)
+        return self.make_bone_by_spec(pos_spec, pos_spec[2], 1.1)
 
     def make_extra_control_bone(self, pos_spec):
-        return self.make_bone_by_spec(pos_spec, pos_spec[2], 0.70)
+        return self.make_bone_by_spec(pos_spec, pos_spec[2], 0.9)
 
     @stage_parent_bones
     def parent_control_chain(self):
@@ -336,19 +366,22 @@ class Rig(SimpleChainRig):
 
         can_rotate = False
 
-        if subtype == 0:
-            if index == 0 and self.params.sik_start_controls > 0:
-                can_rotate = True
-            elif index == self.num_main_controls-1 and self.params.sik_end_controls > 0:
-                can_rotate = True
-
-        if can_rotate:
+        if subtype == 0 and index == 0:
+            if self.params.sik_start_controls > 0:
+                bone.rotation_mode = 'QUATERNION'
+            else:
+                bone.rotation_mode = 'XYZ'
+                bone.lock_rotation = (True, False, True)
+        elif (subtype == 0 and index == self.num_main_controls-1
+              and self.params.sik_end_controls > 0):
             bone.rotation_mode = 'QUATERNION'
         else:
             bone.lock_rotation_w = True
             bone.lock_rotation = (True, True, True)
 
-        if not self.use_radius:
+        if subtype == 0 and index == 0:
+            bone.lock_scale = (False, not self.use_stretch, False)
+        elif not self.use_radius:
             bone.lock_scale = (True, True, True)
 
     @stage_rig_bones
@@ -357,6 +390,9 @@ class Rig(SimpleChainRig):
             self.rig_control_bone(*info)
 
     def rig_control_bone(self, ctrl, subtype, index):
+        if self.use_stretch and subtype == 0 and index == 0:
+            self.make_constraint(ctrl, 'MAINTAIN_VOLUME', mode='UNIFORM', owner_space='LOCAL')
+
         self.rig_enable_control_driver(self.get_bone(ctrl).bone, 'hide', subtype, index, disable=True)
 
     @stage_generate_widgets
@@ -365,7 +401,15 @@ class Rig(SimpleChainRig):
             self.make_control_widget(*info)
 
     def make_control_widget(self, ctrl, subtype, index):
-        create_sphere_widget(self.obj, ctrl)
+        if subtype == 0 and index == 0:
+            if len(self.start_control_poslist) > 0:
+                create_twist_widget(self.obj, ctrl, size=1, head_tail=0.25)
+            else:
+                self.make_twist_control_widget(ctrl, self.bones.org[0], head_tail=0.25)
+        elif self.use_tip and subtype == 0 and index == self.num_main_controls - 1:
+            create_twist_widget(self.obj, ctrl, size=1, head_tail=0.25)
+        else:
+            create_sphere_widget(self.obj, ctrl)
 
     ##############################
     # Spline tip parent MCH
@@ -438,8 +482,9 @@ class Rig(SimpleChainRig):
         con = self.make_constraint(hook, 'COPY_SCALE', ctrl, space='LOCAL')
         self.rig_enable_control_driver(con, 'mute', subtype, index, disable=True)
 
-        con = self.make_constraint(hook, 'COPY_SCALE', tip_ctrl, space='LOCAL')
-        self.rig_enable_control_driver(con, 'mute', subtype, index, disable=False)
+        if subtype == 2 and not self.use_tip:
+            con = self.make_constraint(hook, 'COPY_SCALE', tip_ctrl, space='LOCAL')
+            self.rig_enable_control_driver(con, 'mute', subtype, index, disable=False)
 
     ##############################
     # Spline Object
@@ -480,19 +525,27 @@ class Rig(SimpleChainRig):
 
         spline.bezier_points.add(len(all_controls) - 1)
 
+        end_index = len(all_controls) - 1
+
         for i, (name,subtype,index) in enumerate(all_controls):
             point = spline.bezier_points[i]
             point.handle_left_type = point.handle_right_type = 'AUTO'
             point.co = point.handle_left = point.handle_right = self.get_bone(name).head
-            point.radius = self.max_curve_radius
+
+            if i == 0 or self.use_tip and i == end_index:
+                point.radius = 1.0
+            else:
+                point.radius = self.max_curve_radius
 
     def make_spline_keys(self, spline_obj, all_controls):
         spline_obj.shape_key_add(name='Basis', from_mix=False)
 
-        for i, (name,subtype,index) in enumerate(all_controls):
+        controls = all_controls[1:-1] if self.use_tip else all_controls[1:]
+
+        for i, (name,subtype,index) in enumerate(controls):
             key = spline_obj.shape_key_add(name=name, from_mix=False)
             key.value = 0.0
-            key.data[i].radius = 0.0
+            key.data[i+1].radius = 0.0
 
 
     @stage_rig_bones
@@ -501,7 +554,9 @@ class Rig(SimpleChainRig):
             self.rig_spline_hook(i, *info)
 
         if self.use_radius:
-            for i, info in enumerate(self.all_controls):
+            controls = self.all_controls[1:-1] if self.use_tip else self.all_controls[1:]
+
+            for i, info in enumerate(controls):
                 self.rig_spline_radius_shapekey(i, *info)
 
     def rig_spline_hook(self, i, ctrl, subtype, index):
@@ -529,11 +584,15 @@ class Rig(SimpleChainRig):
         make_driver(key, 'value', expression=expr, variables=scale_var)
 
     ##############################
-    # Spline IK Chain
+    # Spline IK Chain MCH
 
     @stage_generate_bones
     def make_mch_ik_chain(self):
-        self.bones.mch.ik = map_list(self.make_mch_ik_bone, self.bones.org)
+        orgs = self.bones.org[0:-1] if self.use_tip else self.bones.org
+        self.bones.mch.ik = map_list(self.make_mch_ik_bone, orgs)
+
+        if not self.use_tip:
+            self.bones.mch.ik_final = self.bones.mch.ik
 
     def make_mch_ik_bone(self, org):
         name = self.copy_bone(org, make_derived_name(org, 'mch', '.ik'))
@@ -543,7 +602,7 @@ class Rig(SimpleChainRig):
     @stage_parent_bones
     def parent_mch_ik_chain(self):
         self.parent_bone_chain(self.bones.mch.ik, use_connect=True)
-        self.set_bone_parent(self.bones.mch.ik[0], self.bones.ctrl.start_twist)
+        self.set_bone_parent(self.bones.mch.ik[0], self.bones.ctrl.main[0])
 
     @stage_rig_bones
     def rig_mch_ik_chain(self):
@@ -557,13 +616,14 @@ class Rig(SimpleChainRig):
 
         num_ik = len(self.bones.mch.ik)
 
-        self.make_driver(
-            mch, 'rotation_euler', index=1,
-            expression = 'var / %d' % (num_ik),
-            variables = [(self.bones.ctrl.end_twist, '.rotation_euler.y')]
-        )
+        if not self.use_tip:
+            self.make_driver(
+                mch, 'rotation_euler', index=1,
+                expression = 'var / %d' % (num_ik),
+                variables = [(self.bones.ctrl.end_twist, '.rotation_euler.y')]
+            )
 
-        self.make_constraint(mch, 'COPY_SCALE', self.bones.ctrl.start_twist)
+        self.make_constraint(mch, 'COPY_SCALE', self.bones.ctrl.main[0])
 
         if self.use_stretch:
             self.make_constraint(
@@ -585,6 +645,75 @@ class Rig(SimpleChainRig):
         )
 
     ##############################
+    # Tip matching MCH
+
+    @stage_generate_bones
+    def make_mch_tip_fix(self):
+        if self.use_tip:
+            org = self.bones.org[-1]
+            parent = self.copy_bone(org, make_derived_name(org, 'mch', '.fix.parent'), scale=0.8)
+            self.get_bone(parent).use_inherit_scale = False
+            self.bones.mch.tip_fix_parent = parent
+            self.bones.mch.tip_fix = self.copy_bone(org, make_derived_name(org, 'mch', '.fix'), scale=0.7)
+
+    @stage_parent_bones
+    def parent_mch_tip_fix(self):
+        if self.use_tip:
+            self.set_bone_parent(self.bones.mch.tip_fix_parent, self.bones.mch.ik[-1])
+            self.set_bone_parent(self.bones.mch.tip_fix, self.bones.mch.tip_fix_parent)
+
+    @stage_rig_bones
+    def rig_mch_tip_fix(self):
+        if self.use_tip:
+            ctrl = self.bones.ctrl.main[-1]
+            parent = self.bones.mch.tip_fix_parent
+            fix = self.bones.mch.tip_fix
+
+            # Deduce the local scale and twist correction by subtracting existing
+            # tentacle end transform via parenting and local space.
+            self.make_constraint(parent, 'COPY_SCALE', self.bones.ctrl.main[0])
+            self.make_constraint(parent, 'DAMPED_TRACK', ctrl, head_tail=1.0)
+            self.make_constraint(fix, 'COPY_TRANSFORMS', ctrl)
+
+    ###################################
+    # Final IK Chain MCH (tip matched)
+
+    @stage_generate_bones
+    def make_mch_ik_final_chain(self):
+        if self.use_tip:
+            self.bones.mch.ik_final = map_list(self.make_mch_ik_final_bone, self.bones.org[0:-1])
+
+    def make_mch_ik_final_bone(self, org):
+        return self.copy_bone(org, make_derived_name(org, 'mch', '.ik.final'))
+
+    @stage_parent_bones
+    def parent_mch_ik_final_chain(self):
+        if self.use_tip:
+            self.bones.mch.ik_final += [ self.bones.ctrl.main[-1] ]
+
+            for final, ik in zip(self.bones.mch.ik_final, self.bones.mch.ik):
+                self.set_bone_parent(final, ik)
+
+    @stage_rig_bones
+    def rig_mch_ik_final_chain(self):
+        if self.use_tip:
+            for args in zip(count(0), self.bones.mch.ik_final[:-1]):
+                self.rig_mch_ik_final_bone(*args)
+
+    def rig_mch_ik_final_bone(self, i, mch):
+        fix = self.bones.mch.tip_fix
+        factor = (i + 1) / len(self.bones.org)
+
+        self.make_constraint(
+            mch, 'COPY_ROTATION', fix, space='LOCAL',
+            use_x=False, use_z=False, influence=factor
+        )
+        self.make_constraint(
+            mch, 'COPY_SCALE', fix, space='LOCAL',
+            use_y=False, power=factor
+        )
+
+    ##############################
     # ORG chain
 
     @stage_parent_bones
@@ -593,7 +722,7 @@ class Rig(SimpleChainRig):
 
     @stage_rig_bones
     def rig_org_chain(self):
-        for args in zip(count(0), self.bones.org, self.bones.mch.ik):
+        for args in zip(count(0), self.bones.org, self.bones.mch.ik_final):
             self.rig_org_bone(*args)
 
     def rig_org_bone(self, i, org, ik):
@@ -619,9 +748,15 @@ class Rig(SimpleChainRig):
             description="Number of extra spline control points attached to the end control"
         )
 
-        params.sik_stretch_control = bpy.props.BoolProperty(
-            name="Explicit Squash and Stretch", default=False,
-            description="Use the twist controls for squash and stretch, instead of fitting to the curve length"
+        params.sik_stretch_control = bpy.props.EnumProperty(
+            name="Tip Control",
+            description="How the stretching of the tentacle is controlled",
+            items=[('FIT_CURVE', 'Stretch To Fit', 'The tentacle stretches to fit the curve'),
+                   ('DIRECT_TIP', 'Direct Tip Control',
+                    'The last bone of the chain is directly controlled, like the hand in an IK arm, '+
+                    'and the middle stretches to reach it'),
+                   ('MANUAL_STRETCH', 'Manual Squash & Stretch',
+                    'The tentacle scaling is manually controlled via twist controls.')]
         )
 
         params.sik_radius_scaling = bpy.props.BoolProperty(
@@ -644,7 +779,7 @@ class Rig(SimpleChainRig):
         layout.prop(params, 'sik_mid_controls')
         layout.prop(params, 'sik_end_controls')
 
-        layout.prop(params, 'sik_stretch_control')
+        layout.prop(params, 'sik_stretch_control', text='')
 
         layout.prop(params, 'sik_radius_scaling')
 
