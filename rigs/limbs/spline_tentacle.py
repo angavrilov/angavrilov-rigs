@@ -424,7 +424,7 @@ class Rig(SimpleChainRig):
             else:
                 self.make_twist_control_widget(ctrl, self.bones.org[0], head_tail=0.25)
         elif self.use_tip and subtype == 0 and index == self.num_main_controls - 1:
-            create_twist_widget(self.obj, ctrl, size=1, head_tail=0.25)
+            create_circle_widget(self.obj, ctrl, radius=0.5, head_tail=0.25)
         else:
             create_sphere_widget(self.obj, ctrl)
 
