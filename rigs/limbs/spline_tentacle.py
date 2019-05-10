@@ -302,8 +302,8 @@ class Rig(SimpleChainRig):
 
         extra_table = [
             [],
-            [(self.bones.mch.get('start_parent', None), self.bones.ctrl.main[0])],
-            [(self.bones.mch.get('end_parent', None), self.bones.ctrl.main[-1])],
+            lambda: [(self.bones.mch.start_parent, self.bones.ctrl.main[0])],
+            lambda: [(self.bones.mch.end_parent, self.bones.ctrl.main[-1])],
         ]
 
         for (bone, subtype, index) in self.all_controls[1:]:

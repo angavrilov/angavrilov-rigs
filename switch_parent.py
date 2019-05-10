@@ -62,10 +62,14 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
 
         Parameters:
           rig               Owner of the bone.
-          bone              Actual name of the parent bone, or a function returning it.
+          bone              Actual name of the parent bone.
           name              Name of the parent for mouse-over hint.
           is_global         The parent is accessible to all rigs, instead of just children of owner.
           exclude_self      The parent is invisible to the owner rig itself.
+
+        Lazy creation:
+          The bone parameter may be a function creating the bone on demand and
+          returning its name. It is guaranteed to be called at most once.
         """
 
         assert not self.frozen
@@ -84,7 +88,9 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
 
     def build_child(self, rig, bone, *, extra_parents=[], use_parent_mch=True,
                     prop_bone=None, prop_id=None, prop_name=None, controls=None,
-                    ctrl_bone=None, no_fix_loc=False, no_fix_rot=False, no_fix_scale=False):
+                    ctrl_bone=None,
+                    no_fix_location=False, no_fix_rotation=False, no_fix_scale=False,
+                    copy_location=None, copy_rotation=None, copy_scale=None):
         """
         Build a switchable parent mechanism for the specified bone.
 
@@ -94,13 +100,18 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
           extra_parents     List of bone names or (name, user_name) pairs to use as additional parents.
           use_parent_mch    Create an intermediate MCH bone for the constraints and parent the child to it.
 
-          prop_bone         Name of the bone to add the property to, or function returning it.
+          prop_bone         Name of the bone to add the property to.
           prop_id           Actual name of the control property.
           prop_name         Name of the property to use in the UI script.
-          controls          Collection of controls to bind property UI to, or a function returning it.
+          controls          Collection of controls to bind property UI to.
 
           ctrl_bone         User visible control bone that depends on this parent (for switch & keep transform)
           no_fix_*          Disable "Switch and Keep Transform" correction for specific channels.
+          copy_*            Override the specified components by copying from another bone.
+
+        Lazy parameters:
+          'extra_parents', 'prop_bone', 'controls', 'copy_*' may be a function
+          returning the value. They are called in the configure_bones stage.
         """
         assert self.generator.stage == 'generate_bones' and not self.frozen
         assert rig is not None
@@ -118,7 +129,9 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
             'rig':rig, 'bone': bone, 'mch_bone': mch_bone,
             'prop_bone': prop_bone, 'prop_id': prop_name, 'prop_name': prop_name,
             'controls': controls, 'extra_parents': extra_parents or [],
-            'ctrl_bone': ctrl_bone, 'no_fix': (no_fix_loc, no_fix_rot, no_fix_scale),
+            'ctrl_bone': ctrl_bone,
+            'no_fix': (no_fix_location, no_fix_rotation, no_fix_scale),
+            'copy': (copy_location, copy_rotation, copy_scale),
             'is_done': False
         }
         self.child_list.append(child)
@@ -126,10 +139,11 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
 
 
     def rig_child_now(self, bone):
-        """Rig the specified child immediately."""
+        """Create the constraints immediately."""
         assert self.generator.stage == 'rig_bones'
-
-        self.__rig_child(self.child_map[bone])
+        child = self.child_map[bone]
+        assert not child['is_done']
+        self.__rig_child(child)
 
     ##############################
     # Implementation
@@ -144,12 +158,20 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
             parents = []
 
             for parent in self.parent_list:
-                if parent['exclude_self'] and parent['rig'] is child_rig:
-                    continue
+                if parent['rig'] is child_rig:
+                    if parent['exclude_self']:
+                        continue
+                elif parent['is_global']:
+                    # Can't use parents from own children, even if global (cycle risk)
+                    if _rig_is_child(parent['rig'], child_rig):
+                        continue
+                else:
+                    # Required to be a child of the rig
+                    if _rig_is_child(child_rig, parent['rig']):
+                        continue
 
-                if parent['is_global'] or _rig_is_child(child_rig, parent['rig']):
-                    parent['used'] = True
-                    parents.append(parent)
+                parent['used'] = True
+                parents.append(parent)
 
             child['parents'] = parents
 
@@ -185,7 +207,7 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
             if parent['bone'] not in parent_map:
                 parent_map[parent['bone']] = parent['name']
 
-        for parent in child['extra_parents']:
+        for parent in _auto_call(child['extra_parents']):
             if not isinstance(parent, tuple):
                 parent = (parent, None)
             if parent[0] not in parent_map:
@@ -202,11 +224,19 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
         parent_names = [ parent[1] or strip_prefix(parent[0]) for parent in [(None, 'None'), *parent_bones] ]
         parent_str = ', '.join([ '%s (%d)' % (name, i) for i, name in enumerate(parent_names) ])
 
+        ctrl_bone = child['ctrl_bone'] or bone
+
         self.make_property(
             prop_bone, prop_id, len(parent_bones),
             min=0, max=len(parent_bones),
-            description='Switch parent: ' + parent_str
+            description='Switch parent of %s: %s' % (ctrl_bone, parent_str)
         )
+
+        # Find which channels don't depend on the parent
+
+        child['copy'] = tuple(map(_auto_call, child['copy']))
+
+        locks = tuple(bool(nofix or copy) for nofix, copy in zip(child['no_fix'], child['copy']))
 
         # Create the script for the property
         controls = _auto_call(child['controls']) or set([prop_bone, bone])
@@ -219,8 +249,8 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
 
         op_name = 'pose.rigify_switch_parent_' + self.generator.rig_id
         op_props = {
-            'bone': child['ctrl_bone'] or bone, 'prop_bone': prop_bone, 'prop_id': prop_id,
-            'parent_names': json.dumps(parent_names), 'locks': child['no_fix']
+            'bone': ctrl_bone, 'prop_bone': prop_bone, 'prop_id': prop_id,
+            'parent_names': json.dumps(parent_names), 'locks': locks,
         }
 
         row = panel.row(align=True)
@@ -238,7 +268,8 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
         child['is_done'] = True
 
         # Implement via an Armature constraint
-        con = self.make_constraint(child['mch_bone'], 'ARMATURE', name='SWITCH_PARENT')
+        mch = child['mch_bone']
+        con = self.make_constraint(mch, 'ARMATURE', name='SWITCH_PARENT')
 
         prop_var = [(child['prop_bone'], child['prop_id'])]
 
@@ -251,6 +282,16 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
 
             expr = 'var == %d' % (i+1)
             self.make_driver(tgt, 'weight', expression=expr, variables=prop_var)
+
+        # Add copy constraints
+        copy = child['copy']
+
+        if copy[0]:
+            self.make_constraint(mch, 'COPY_LOCATION', copy[0])
+        if copy[1]:
+            self.make_constraint(mch, 'COPY_ROTATION', copy[1])
+        if copy[2]:
+            self.make_constraint(mch, 'COPY_SCALE', copy[2])
 
 
 REGISTER_OP_SWITCH_PARENT = ['Rigify_Switch_Parent']
