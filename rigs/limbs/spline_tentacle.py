@@ -338,13 +338,20 @@ class Rig(SimpleChainRig):
     def make_controls_switch_parent(self):
         builder = SwitchParentBuilder(self.generator)
 
-        start_extra = lambda: [(self.bones.mch.start_parent, self.bones.ctrl.main[0])]
-        end_extra = lambda: [(self.bones.mch.end_parent, self.bones.ctrl.main[-1])]
+        extra = lambda: [
+            (self.bones.mch.start_parent, self.bones.ctrl.main[0]),
+            (self.bones.mch.end_parent, self.bones.ctrl.main[-1])
+        ]
+        select_table = [
+            lambda: self.bones.ctrl.master,
+            lambda: self.bones.mch.start_parent,
+            lambda: self.bones.mch.end_parent
+        ]
 
-        extra_table = [ [], start_extra, end_extra ]
+        for (bone, subtype, index) in self.all_controls[1:-1]:
+            builder.build_child(self, bone, extra_parents=extra, select_parent=select_table[subtype], no_fix_scale=True)
 
-        for (bone, subtype, index) in self.all_controls[1:]:
-            builder.build_child(self, bone, extra_parents=extra_table[subtype], no_fix_scale=True)
+        builder.build_child(self, self.bones.ctrl.main[-1], no_fix_scale=not self.use_tip)
 
     def make_main_control_bone(self, pos_spec):
         return self.make_bone_by_spec(pos_spec, pos_spec[2], 1.1)
@@ -416,30 +423,21 @@ class Rig(SimpleChainRig):
 
     @stage_generate_bones
     def make_mch_extra_parent_bones(self):
-        if len(self.start_control_poslist) > 0:
-            self.bones.mch.start_parent = self.make_mch_extra_parent_bone(self.main_control_poslist[0])
-
-        if len(self.end_control_poslist) > 0:
-            self.bones.mch.end_parent = self.make_mch_extra_parent_bone(self.main_control_poslist[-1])
+        self.bones.mch.start_parent = self.make_mch_extra_parent_bone(self.main_control_poslist[0])
+        self.bones.mch.end_parent = self.make_mch_extra_parent_bone(self.main_control_poslist[-1])
 
     def make_mch_extra_parent_bone(self, pos_spec):
         return self.make_bone_by_spec(pos_spec, make_derived_name(pos_spec[2], 'mch', '.psocket'), 0.40)
 
     @stage_parent_bones
     def parent_mch_extra_parent_bones(self):
-        if 'start_parent' in self.bones.mch:
-            self.set_bone_parent(self.bones.mch.start_parent, self.bones.ctrl.master)
-
-        if 'end_parent' in self.bones.mch:
-            self.set_bone_parent(self.bones.mch.end_parent, self.bones.ctrl.master)
+        self.set_bone_parent(self.bones.mch.start_parent, self.bones.ctrl.master)
+        self.set_bone_parent(self.bones.mch.end_parent, self.bones.ctrl.master)
 
     @stage_rig_bones
     def rig_mch_extra_parent_bones(self):
-        if 'start_parent' in self.bones.mch:
-            self.rig_mch_extra_parent_bone(self.bones.mch.start_parent, self.bones.ctrl.main[0])
-
-        if 'end_parent' in self.bones.mch:
-            self.rig_mch_extra_parent_bone(self.bones.mch.end_parent, self.bones.ctrl.main[-1])
+        self.rig_mch_extra_parent_bone(self.bones.mch.start_parent, self.bones.ctrl.main[0])
+        self.rig_mch_extra_parent_bone(self.bones.mch.end_parent, self.bones.ctrl.main[-1])
 
     def rig_mch_extra_parent_bone(self, bone, ctrl):
         self.make_constraint(bone, 'COPY_LOCATION', ctrl)

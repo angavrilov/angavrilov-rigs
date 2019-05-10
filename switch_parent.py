@@ -87,6 +87,7 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
 
 
     def build_child(self, rig, bone, *, extra_parents=[], use_parent_mch=True,
+                    select_parent=None, ignore_global=False,
                     prop_bone=None, prop_id=None, prop_name=None, controls=None,
                     ctrl_bone=None,
                     no_fix_location=False, no_fix_rotation=False, no_fix_scale=False,
@@ -99,6 +100,8 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
           bone              Name of the child bone.
           extra_parents     List of bone names or (name, user_name) pairs to use as additional parents.
           use_parent_mch    Create an intermediate MCH bone for the constraints and parent the child to it.
+          select_parent     Select the specified bone instead of the last one.
+          ignore_global     Ignore the is_global flag of potential parents.
 
           prop_bone         Name of the bone to add the property to.
           prop_id           Actual name of the control property.
@@ -110,8 +113,8 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
           copy_*            Override the specified components by copying from another bone.
 
         Lazy parameters:
-          'extra_parents', 'prop_bone', 'controls', 'copy_*' may be a function
-          returning the value. They are called in the configure_bones stage.
+          'extra_parents', 'select_parent', 'prop_bone', 'controls', 'copy_*'
+          may be a function returning the value. They are called in the configure_bones stage.
         """
         assert self.generator.stage == 'generate_bones' and not self.frozen
         assert rig is not None
@@ -129,6 +132,7 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
             'rig':rig, 'bone': bone, 'mch_bone': mch_bone,
             'prop_bone': prop_bone, 'prop_id': prop_name, 'prop_name': prop_name,
             'controls': controls, 'extra_parents': extra_parents or [],
+            'select_parent': select_parent, 'ignore_global': ignore_global,
             'ctrl_bone': ctrl_bone,
             'no_fix': (no_fix_location, no_fix_rotation, no_fix_scale),
             'copy': (copy_location, copy_rotation, copy_scale),
@@ -161,12 +165,12 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
                 if parent['rig'] is child_rig:
                     if parent['exclude_self']:
                         continue
-                elif parent['is_global']:
+                elif parent['is_global'] and not child['ignore_global']:
                     # Can't use parents from own children, even if global (cycle risk)
                     if _rig_is_child(parent['rig'], child_rig):
                         continue
                 else:
-                    # Required to be a child of the rig
+                    # Required to be a child of the parent's rig
                     if not _rig_is_child(child_rig, parent['rig']):
                         continue
 
@@ -216,6 +220,16 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
         parent_bones = list(parent_map.items())
         child['parent_bones'] = parent_bones
 
+        # Find which bone to select
+        select_bone = _auto_call(child['select_parent'])
+        select_index = len(parent_bones)
+
+        if select_bone:
+            try:
+                select_index = 1 + next(i for i, (bone, _) in enumerate(parent_bones) if bone == select_bone)
+            except StopIteration:
+                pass
+
         # Create the controlling property
         prop_bone = child['prop_bone'] = _auto_call(child['prop_bone']) or bone
         prop_name = child['prop_name'] or child['prop_id'] or 'Parent Switch'
@@ -227,7 +241,7 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
         ctrl_bone = child['ctrl_bone'] or bone
 
         self.make_property(
-            prop_bone, prop_id, len(parent_bones),
+            prop_bone, prop_id, select_index,
             min=0, max=len(parent_bones),
             description='Switch parent of %s: %s' % (ctrl_bone, parent_str)
         )
