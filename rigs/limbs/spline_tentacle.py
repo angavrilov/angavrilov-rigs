@@ -3,6 +3,7 @@ import bpy
 import re
 import itertools
 import bisect
+import math
 
 from rigify.utils.errors import MetarigError
 from rigify.utils.naming import strip_org, make_derived_name
@@ -238,6 +239,15 @@ class Rig(SimpleChainRig):
 
             panel = self.script.panel_with_selected_check(ctrls)
             panel.custom_prop(master, 'end_controls', text="End Controls")
+
+        if self.use_tip:
+            self.make_property(
+                master, 'end_twist', 0.0, min=-5, max=5,
+                description="Rough end twist in full circles. The rig auto-corrects it to the actual tip orientation within 180 degrees"
+            )
+
+            panel = self.script.panel_with_selected_check(ctrls)
+            panel.custom_prop(master, 'end_twist', text="End Twist Fix")
 
     @stage_generate_widgets
     def make_master_control_widget(self):
@@ -612,15 +622,19 @@ class Rig(SimpleChainRig):
     def rig_mch_ik_bone(self, i, mch):
         self.get_bone(mch).rotation_mode = 'XYZ'
 
-        num_ik = len(self.bones.mch.ik)
+        num_ik = len(self.bones.org)
 
-        if not self.use_tip:
-            self.make_driver(
-                mch, 'rotation_euler', index=1,
-                expression = 'var / %d' % (num_ik),
-                variables = [(self.bones.ctrl.end_twist, '.rotation_euler.y')]
-            )
+        # Apply end twist rotation
+        if self.use_tip:
+            rot_fac = math.pi * 2 / num_ik
+            rot_var = [(self.bones.ctrl.master, 'end_twist')]
+        else:
+            rot_fac = 1.0 / num_ik
+            rot_var = [(self.bones.ctrl.end_twist, '.rotation_euler.y')]
 
+        self.make_driver(mch, 'rotation_euler', index=1, expression='var * %f' % (rot_fac), variables=rot_var)
+
+        # Copy the common scale
         self.make_constraint(mch, 'COPY_SCALE', self.bones.ctrl.main[0])
 
         if self.use_stretch:
@@ -667,10 +681,14 @@ class Rig(SimpleChainRig):
             parent = self.bones.mch.tip_fix_parent
             fix = self.bones.mch.tip_fix
 
-            # Deduce the local scale and twist correction by subtracting existing
-            # tentacle end transform via parenting and local space.
-            self.make_constraint(parent, 'COPY_SCALE', self.bones.ctrl.main[0])
+            # Rig the baseline bone as the end of the IK chain (scale, twist)
+            self.rig_mch_ik_bone(len(self.bones.mch.ik), parent)
+
+            # Align the baseline to the tip control direction
             self.make_constraint(parent, 'DAMPED_TRACK', ctrl, head_tail=1.0)
+
+            # Deduce the scale and twist correction by subtracting baseline
+            # from tip control transform via parenting and local space.
             self.make_constraint(fix, 'COPY_TRANSFORMS', ctrl)
 
     ###################################
