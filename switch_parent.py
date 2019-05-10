@@ -255,7 +255,7 @@ class SwitchParentBuilder(GeneratorPlugin, MechanismUtilityMixin):
 
         row = panel.row(align=True)
         row.custom_prop(prop_bone, prop_id, text=prop_name)
-        row.operator(op_name, text='', icon='MODIFIER', properties=op_props)
+        row.operator(op_name, text='', icon='DOWNARROW_HLT', properties=op_props)
 
     def rig_bones(self):
         for child in self.child_list:
@@ -336,7 +336,7 @@ UTILITIES_OP_SWITCH_PARENT = ['''
 class Rigify_Switch_Parent(bpy.types.Operator):
     bl_idname = "pose.rigify_switch_parent_" + rig_id
     bl_label = "Switch Parent (Keep Transform)"
-    bl_options = {'UNDO', 'INTERNAL'}
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL', 'USE_EVAL_DATA'}
     bl_description = "Switch parent, preserving the bone position and orientation"
 
     bone:         StringProperty(name="Control Bone")
@@ -358,11 +358,6 @@ class Rigify_Switch_Parent(bpy.types.Operator):
         obj = context.active_object
         ctrl_bone = obj.pose.bones[self.bone]
         prop_bone = obj.pose.bones[self.prop_bone]
-        old_val = prop_bone[self.prop_id]
-        new_val = int(self.selected)
-
-        if old_val == new_val:
-            return {'CANCELLED'}
 
         old_matrix = obj.convert_space(
             pose_bone=ctrl_bone, matrix=ctrl_bone.matrix_basis,
@@ -370,7 +365,7 @@ class Rigify_Switch_Parent(bpy.types.Operator):
         )
 
         # Change the parent
-        prop_bone[self.prop_id] = new_val
+        prop_bone[self.prop_id] = int(self.selected)
 
         rna_idprop_ui_prop_update(prop_bone, self.prop_id)
         context.view_layer.update()
@@ -387,7 +382,7 @@ class Rigify_Switch_Parent(bpy.types.Operator):
 
         return {'FINISHED'}
 
-    def invoke(self, context, _event):
+    def invoke(self, context, event):
         wm = context.window_manager
         pose = context.active_object.pose
 
@@ -405,7 +400,7 @@ class Rigify_Switch_Parent(bpy.types.Operator):
 
         self.selected = str(pose.bones[self.prop_bone][self.prop_id])
 
-        return wm.invoke_props_dialog(self)
+        return wm.invoke_props_popup(self, event)
 
     def draw(self, _context):
         layout = self.layout
