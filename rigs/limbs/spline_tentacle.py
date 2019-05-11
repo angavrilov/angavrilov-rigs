@@ -241,8 +241,10 @@ class Rig(SimpleChainRig):
             panel.custom_prop(master, 'end_controls', text="End Controls")
 
         if self.use_tip:
+            maxval = len(self.bones.org) / 2
+
             self.make_property(
-                master, 'end_twist', 0.0, min=-5, max=5,
+                master, 'end_twist', 0.0, min=-maxval, max=maxval,
                 description="Rough end twist in full circles. The rig auto-corrects it to the actual tip orientation within 180 degrees"
             )
 
@@ -262,22 +264,13 @@ class Rig(SimpleChainRig):
         if not self.use_tip:
             self.bones.ctrl.end_twist = self.make_twist_control_bone('end-twist', 1.15)
 
-        if self.use_stretch:
-            self.bones.mch.end_stretch = self.make_mch_end_stretch_bone(self.bones.ctrl.end_twist)
-
     def make_twist_control_bone(self, name, size):
         return self.copy_bone(self.bones.org[0], self.make_name(name), length=self.avg_length * size)
-
-    def make_mch_end_stretch_bone(self, end_ctrl):
-        return self.copy_bone(end_ctrl, make_derived_name(end_ctrl, 'mch', '.stretch'), scale=0.5)
 
     @stage_parent_bones
     def parent_twist_control_bones(self):
         if not self.use_tip:
             self.set_bone_parent(self.bones.ctrl.end_twist, self.bones.ctrl.master)
-
-        if self.use_stretch:
-            self.set_bone_parent(self.bones.mch.end_stretch, self.bones.ctrl.master)
 
     @stage_configure_bones
     def configure_twist_control_bones(self):
@@ -298,17 +291,6 @@ class Rig(SimpleChainRig):
             # Copy the location of the end bone to provide more convenient tool behavior.
             self.make_constraint(self.bones.ctrl.end_twist, 'COPY_LOCATION', self.bones.org[-1])
 
-        if self.use_stretch:
-            self.rig_mch_end_stretch_bone(self.bones.mch.end_stretch, self.bones.ctrl.end_twist)
-
-    def rig_mch_end_stretch_bone(self, mch, ctrl):
-        # Break the dependency cycle caused by COPY_LOCATION above by copying raw properties.
-        self.make_driver(mch, 'scale', index=0, variables=[(ctrl, '.scale.x')])
-        self.make_driver(mch, 'scale', index=1, variables=[(ctrl, '.scale.y')])
-        self.make_driver(mch, 'scale', index=2, variables=[(ctrl, '.scale.z')])
-
-        self.make_constraint(mch, 'MAINTAIN_VOLUME', mode='UNIFORM', owner_space='LOCAL')
-
     @stage_generate_widgets
     def make_twist_control_widgets(self):
         if not self.use_tip:
@@ -324,6 +306,36 @@ class Rig(SimpleChainRig):
         bone.custom_shape_scale = scale
 
         create_twist_widget(self.obj, ctrl, size=size/scale, head_tail=head_tail)
+
+    ##############################
+    # Twist controls MCH
+
+    @stage_generate_bones
+    def make_mch_twist_control_bones(self):
+        if self.use_stretch:
+            self.bones.mch.end_stretch = self.make_mch_end_stretch_bone('end-twist.stretch', 1.15)
+
+    def make_mch_end_stretch_bone(self, name_base, size):
+        name = make_derived_name(self.make_name(name_base), 'mch')
+        return self.copy_bone(self.bones.org[0], name, length = self.avg_length * size * 0.5)
+
+    @stage_parent_bones
+    def parent_mch_twist_control_bones(self):
+        if self.use_stretch:
+            self.set_bone_parent(self.bones.mch.end_stretch, self.bones.ctrl.master)
+
+    @stage_rig_bones
+    def rig_mch_twist_control_bones(self):
+        if self.use_stretch:
+            self.rig_mch_end_stretch_bone(self.bones.mch.end_stretch, self.bones.ctrl.end_twist)
+
+    def rig_mch_end_stretch_bone(self, mch, ctrl):
+        # Break the dependency cycle caused by COPY_LOCATION above by copying raw properties.
+        self.make_driver(mch, 'scale', index=0, variables=[(ctrl, '.scale.x')])
+        self.make_driver(mch, 'scale', index=1, variables=[(ctrl, '.scale.y')])
+        self.make_driver(mch, 'scale', index=2, variables=[(ctrl, '.scale.z')])
+
+        self.make_constraint(mch, 'MAINTAIN_VOLUME', mode='UNIFORM', owner_space='LOCAL')
 
     ##############################
     # Spline controls
@@ -599,9 +611,6 @@ class Rig(SimpleChainRig):
         orgs = self.bones.org[0:-1] if self.use_tip else self.bones.org
         self.bones.mch.ik = map_list(self.make_mch_ik_bone, orgs)
 
-        if not self.use_tip:
-            self.bones.mch.ik_final = self.bones.mch.ik
-
     def make_mch_ik_bone(self, org):
         name = self.copy_bone(org, make_derived_name(org, 'mch', '.ik'))
         self.get_bone(name).use_inherit_scale = False
@@ -702,18 +711,22 @@ class Rig(SimpleChainRig):
     def make_mch_ik_final_bone(self, org):
         return self.copy_bone(org, make_derived_name(org, 'mch', '.ik.final'))
 
+    def get_ik_final(self):
+        if self.use_tip:
+            return [*self.bones.mch.ik_final, self.bones.ctrl.main[-1] ]
+        else:
+            return self.bones.mch.ik
+
     @stage_parent_bones
     def parent_mch_ik_final_chain(self):
         if self.use_tip:
-            self.bones.mch.ik_final += [ self.bones.ctrl.main[-1] ]
-
             for final, ik in zip(self.bones.mch.ik_final, self.bones.mch.ik):
                 self.set_bone_parent(final, ik)
 
     @stage_rig_bones
     def rig_mch_ik_final_chain(self):
         if self.use_tip:
-            for args in zip(count(0), self.bones.mch.ik_final[:-1]):
+            for args in zip(count(0), self.bones.mch.ik_final):
                 self.rig_mch_ik_final_bone(*args)
 
     def rig_mch_ik_final_bone(self, i, mch):
@@ -738,7 +751,7 @@ class Rig(SimpleChainRig):
 
     @stage_rig_bones
     def rig_org_chain(self):
-        for args in zip(count(0), self.bones.org, self.bones.mch.ik_final):
+        for args in zip(count(0), self.bones.org, self.get_ik_final()):
             self.rig_org_bone(*args)
 
     def rig_org_bone(self, i, org, ik):
