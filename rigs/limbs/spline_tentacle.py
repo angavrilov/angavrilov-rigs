@@ -13,6 +13,7 @@ from rigify.utils.widgets import create_widget
 from rigify.utils.widgets_basic import create_circle_widget, create_sphere_widget
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.misc import map_list, map_apply
+from rigify.utils.switch_parent import SwitchParentBuilder
 
 from rigify.base_rig import *
 
@@ -20,8 +21,6 @@ from rigify.rigs.chain_rigs import SimpleChainRig
 from rigify.rigs.widgets import create_gear_widget
 
 from itertools import count, repeat
-
-from ...switch_parent import SwitchParentBuilder
 
 
 class Rig(SimpleChainRig):
@@ -371,7 +370,11 @@ class Rig(SimpleChainRig):
         ]
 
         for (bone, subtype, index) in self.all_controls[1:-1]:
-            builder.build_child(self, bone, extra_parents=extra, select_parent=select_table[subtype], no_fix_scale=True)
+            builder.build_child(
+                self, bone, extra_parents=extra,
+                select_parent=select_table[subtype],
+                no_fix_rotation=True, no_fix_scale=True
+            )
 
         builder.build_child(self, self.bones.ctrl.main[-1], no_fix_scale=not self.use_tip)
 
