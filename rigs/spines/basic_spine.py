@@ -31,7 +31,7 @@ from rigify.utils.bones import BoneDict, put_bone, align_bone_to_axis
 from rigify.utils.widgets_basic import create_circle_widget, create_cube_widget
 from rigify.utils.misc import map_list, map_apply
 
-from rigify.base_rig import *
+from rigify.base_rig import stage
 
 
 class Rig(TweakChainRig):
@@ -58,7 +58,7 @@ class Rig(TweakChainRig):
     ####################################################
     # Main control bones
 
-    @stage_generate_bones
+    @stage.generate_bones
     def make_control_chain(self):
         orgs = self.bones.org
         ctrl = self.bones.ctrl
@@ -88,7 +88,7 @@ class Rig(TweakChainRig):
         align_bone_to_axis(self.obj, name, 'y', self.length / 3)
         return name
 
-    @stage_parent_bones
+    @stage.parent_bones
     def parent_control_chain(self):
         ctrl = self.bones.ctrl
         org_parent = self.get_bone_parent(self.bones.org[0])
@@ -96,11 +96,11 @@ class Rig(TweakChainRig):
         self.set_bone_parent(ctrl.hips, ctrl.master)
         self.set_bone_parent(ctrl.chest, ctrl.master)
 
-    @stage_configure_bones
+    @stage.configure_bones
     def configure_control_chain(self):
         pass
 
-    @stage_generate_widgets
+    @stage.generate_widgets
     def make_control_widgets(self):
         ctrl = self.bones.ctrl
         mch = self.bones.mch
@@ -129,7 +129,7 @@ class Rig(TweakChainRig):
     ####################################################
     # MCH bones associated with main controls
 
-    @stage_generate_bones
+    @stage.generate_bones
     def make_mch_control_bones(self):
         orgs = self.bones.org
         mch = self.bones.mch
@@ -146,14 +146,14 @@ class Rig(TweakChainRig):
     def make_mch_widget_bone(self, org, name):
         return self.copy_bone(org, make_mechanism_name(name), parent=False)
 
-    @stage_parent_bones
+    @stage.parent_bones
     def parent_mch_control_bones(self):
         mch = self.bones.mch
         self.set_bone_parent(mch.pivot, mch.chain.chest[0])
         self.set_bone_parent(mch.wgt_hips, mch.chain.hips[0])
         self.set_bone_parent(mch.wgt_chest, mch.chain.chest[-1])
 
-    @stage_rig_bones
+    @stage.rig_bones
     def rig_mch_control_bones(self):
         mch = self.bones.mch
         # Is it actually intending to compute average of these, or is this really intentional?
@@ -163,7 +163,7 @@ class Rig(TweakChainRig):
     ####################################################
     # MCH chain for distributing hip & chest transform
 
-    @stage_generate_bones
+    @stage.generate_bones
     def make_mch_chain(self):
         orgs = self.bones.org
         self.bones.mch.chain = BoneDict(
@@ -176,14 +176,14 @@ class Rig(TweakChainRig):
         align_bone_to_axis(self.obj, name, 'y', self.length / 10, flip=is_hip)
         return name
 
-    @stage_parent_bones
+    @stage.parent_bones
     def parent_mch_chain(self):
         master = self.bones.ctrl.master
         chain = self.bones.mch.chain
         self.parent_bone_chain([master, *reversed(chain.hips)])
         self.parent_bone_chain([master, *chain.chest])
 
-    @stage_rig_bones
+    @stage.rig_bones
     def rig_mch_chain(self):
         ctrl = self.bones.ctrl
         chain = self.bones.mch.chain
@@ -196,14 +196,14 @@ class Rig(TweakChainRig):
     ####################################################
     # Tweak bones
 
-    @stage_parent_bones
+    @stage.parent_bones
     def parent_tweak_chain(self):
         mch = self.bones.mch
         chain = mch.chain
         parents = [chain.hips[0], *chain.hips[0:-1], mch.pivot, *chain.chest[1:], chain.chest[-1]]
         map_apply(self.set_bone_parent, self.bones.ctrl.tweak, parents)
 
-    @stage_configure_bones
+    @stage.configure_bones
     def configure_tweak_chain(self):
         super(Rig,self).configure_tweak_chain()
 
@@ -212,7 +212,7 @@ class Rig(TweakChainRig):
     ####################################################
     # Deform bones
 
-    @stage_configure_bones
+    @stage.configure_bones
     def configure_bbone_chain(self):
         self.get_bone(self.bones.deform[0]).bone.bbone_easein = 0.0
 

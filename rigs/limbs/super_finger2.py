@@ -11,7 +11,7 @@ from rigify.utils.widgets import create_widget
 from rigify.utils.widgets_basic import create_circle_widget
 from rigify.utils.misc import map_list, map_apply
 
-from rigify.base_rig import *
+from rigify.base_rig import stage
 from rigify.rigs.chain_rigs import SimpleChainRig
 
 
@@ -30,7 +30,7 @@ class Rig(SimpleChainRig):
     ##############################
     # Master Control
 
-    @stage_generate_bones
+    @stage.generate_bones
     def make_master_control_bone(self):
         orgs = self.bones.org
         name = self.copy_bone(orgs[0], self.master_control_name(orgs[0]), parent=True)
@@ -47,14 +47,14 @@ class Rig(SimpleChainRig):
         name_base += name_sep if name_sep else '_'
         return name_base + 'master' + name_suffix
 
-    @stage_configure_bones
+    @stage.configure_bones
     def configure_master_control_bone(self):
         master = self.bones.ctrl.master
 
         bone = self.get_bone(master)
         bone.lock_scale = True, False, True
 
-    @stage_generate_widgets
+    @stage.generate_widgets
     def make_master_control_widget(self):
         master_name = self.bones.ctrl.master
 
@@ -75,7 +75,7 @@ class Rig(SimpleChainRig):
     ##############################
     # Control chain
 
-    @stage_generate_bones
+    @stage.generate_bones
     def make_control_chain(self):
         orgs = self.bones.org
         self.bones.ctrl.main = map_list(self.make_control_bone, orgs)
@@ -92,12 +92,12 @@ class Rig(SimpleChainRig):
 
         return name
 
-    @stage_parent_bones
+    @stage.parent_bones
     def parent_control_chain(self):
         ctrls = self.bones.ctrl.main
         map_apply(self.set_bone_parent, ctrls, self.bones.mch.bend + ctrls[-2:])
 
-    @stage_configure_bones
+    @stage.configure_bones
     def configure_control_chain(self):
         map_apply(self.configure_control_bone, self.bones.org + [None], self.bones.ctrl.main)
 
@@ -120,14 +120,14 @@ class Rig(SimpleChainRig):
     ##############################
     # MCH bend chain
 
-    @stage_generate_bones
+    @stage.generate_bones
     def make_mch_bend_chain(self):
         self.bones.mch.bend = map_list(self.make_mch_bend_bone, self.bones.org)
 
     def make_mch_bend_bone(self, org):
         return self.copy_bone(org, make_mechanism_name(strip_org(org)) + "_drv", parent=False)
 
-    @stage_parent_bones
+    @stage.parent_bones
     def parent_mch_bend_chain(self):
         ctrls = self.bones.ctrl.main
         map_apply(self.set_bone_parent, self.bones.mch.bend, [self.first_parent] + ctrls)
@@ -150,7 +150,7 @@ class Rig(SimpleChainRig):
                "expr": '-((1-sy)*pi)'}
     }
 
-    @stage_rig_bones
+    @stage.rig_bones
     def rig_mch_bend_chain(self):
         map_apply(self.rig_mch_bend_bone, count(0), self.bones.mch.bend)
 
@@ -175,19 +175,19 @@ class Rig(SimpleChainRig):
     ##############################
     # MCH stretch chain
 
-    @stage_generate_bones
+    @stage.generate_bones
     def make_mch_stretch_chain(self):
         self.bones.mch.stretch = map_list(self.make_mch_stretch_bone, self.bones.org)
 
     def make_mch_stretch_bone(self, org):
         return self.copy_bone(org, make_mechanism_name(strip_org(org)), parent=False)
 
-    @stage_parent_bones
+    @stage.parent_bones
     def parent_mch_stretch_chain(self):
         ctrls = self.bones.ctrl.main
         map_apply(self.set_bone_parent, self.bones.mch.stretch, [self.first_parent] + ctrls[1:])
 
-    @stage_rig_bones
+    @stage.rig_bones
     def rig_mch_stretch_chain(self):
         ctrls = self.bones.ctrl.main
         map_apply(self.rig_mch_stretch_bone, count(0), self.bones.mch.stretch, ctrls, ctrls[1:])
@@ -203,14 +203,14 @@ class Rig(SimpleChainRig):
     ##############################
     # ORG chain
 
-    @stage_rig_bones
+    @stage.rig_bones
     def rig_org_chain(self):
         map_apply(self.rig_org_bone, self.bones.org, self.bones.mch.stretch)
 
     ##############################
     # Deform chain
 
-    @stage_configure_bones
+    @stage.configure_bones
     def configure_master_properties(self):
         master = self.bones.ctrl.master
 
