@@ -13,6 +13,7 @@ from rigify.utils.widgets import create_widget
 from rigify.utils.widgets_basic import create_circle_widget, create_sphere_widget
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.misc import map_list, map_apply
+from rigify.utils.animation import add_generic_snap_fk_to_ik
 from rigify.utils.switch_parent import SwitchParentBuilder
 
 from rigify.base_rig import stage
@@ -36,13 +37,13 @@ class Rig(SimpleChainRig):
         # Compute master bone name: inherit .LR suffix, but strip trailing digits
         name_parts = re.match(r'^(.*?)(?:([._-])\d+)?((?:[._-][LlRr])?)(?:\.\d+)?$', strip_org(org_chain[0]))
         name_base, name_sep, name_suffix = name_parts.groups()
-        name_base += name_sep if name_sep else '-'
 
         self.name_base = name_base
+        self.name_sep = name_sep if name_sep else '-'
         self.name_suffix = name_suffix
 
         # Find the spline object if it exists
-        self.spline_name = self.obj.name + '-MCH-' + name_base + 'spline' + name_suffix
+        self.spline_name = self.obj.name + '-MCH-' + name_base + name_sep + 'spline' + name_suffix
         self.spline_obj = None
 
         if self.generator.id_store.rigify_generate_mode == 'overwrite':
@@ -58,6 +59,7 @@ class Rig(SimpleChainRig):
         # Options
         self.use_stretch = (self.params.sik_stretch_control == 'MANUAL_STRETCH')
         self.use_tip = (self.params.sik_stretch_control == 'DIRECT_TIP')
+        self.use_fk = self.params.sik_fk_controls
 
         # Compute org chain lengths and control distribution
         if self.use_tip:
@@ -123,7 +125,7 @@ class Rig(SimpleChainRig):
 
     def make_name(self, midpart):
         "Make a name for a bone not tied to a specific org bone"
-        return self.name_base + midpart + self.name_suffix
+        return self.name_base + self.name_sep + midpart + self.name_suffix
 
     def get_main_control_name(self, i):
         if i == 0:
@@ -171,21 +173,23 @@ class Rig(SimpleChainRig):
     # ctrl:
     #   master:
     #     Root control for moving and scaling the whole rig.
-    #   main:
+    #   main[]:
     #     List of main spline controls (always visible and active).
-    #   start, end:
+    #   start[], end[]:
     #     List of extra spline controls attached to the tip main ones (can disable).
     #   end_twist:
     #     Twist control at the end of the tentacle.
+    #   fk[]:
+    #     FK control chain.
     # mch:
     #   start_parent, end_parent:
     #     Intermediate bones for parenting extra controls - discards scale of the main.
-    #   start_hooks, end_hooks:
+    #   start_hooks[], end_hooks[]:
     #     Proxy bones for extra control hooks.
-    #   ik:
+    #   ik[]:
     #     Spline IK chain, responsible for extracting the shape of the curve.
-    #   ik_final:
-    #     Final IK result, equal to ik, or different chain with tip_fix.
+    #   ik_final[]:
+    #     Final IK result with tip_fix.
     #   end_stretch:
     #     Bone used in distributing the end twist control scaling over the chain.
     #   tip_fix_parent, tip_fix
@@ -217,13 +221,14 @@ class Rig(SimpleChainRig):
     def configure_master_control_bone(self):
         master = self.bones.ctrl.master
         ctrls = self.bones.ctrl.flatten()
+        rig_name = self.name_base + self.name_suffix
 
         # Properties for enabling extra controls
         if self.params.sik_start_controls > 0:
             self.make_property(
                 master, 'start_controls', 0,
                 min=0, max=self.params.sik_start_controls,
-                description="Enabled extra start controls"
+                description="Enabled extra start controls for "+rig_name
             )
 
             panel = self.script.panel_with_selected_check(ctrls)
@@ -233,7 +238,7 @@ class Rig(SimpleChainRig):
             self.make_property(
                 master, 'end_controls', 0,
                 min=0, max=self.params.sik_end_controls,
-                description="Enabled extra end controls"
+                description="Enabled extra end controls for "+rig_name
             )
 
             panel = self.script.panel_with_selected_check(ctrls)
@@ -249,6 +254,23 @@ class Rig(SimpleChainRig):
 
             panel = self.script.panel_with_selected_check(ctrls)
             panel.custom_prop(master, 'end_twist', text="End Twist Fix")
+
+        if self.use_fk:
+            self.make_property(master, 'IK_FK', 0.0, description='IK/FK switch for '+rig_name)
+
+            panel = self.script.panel_with_selected_check(ctrls)
+            panel.custom_prop(master, 'IK_FK', text="IK - FK", slider=True)
+
+            ik_controls = [ item[0] for item in self.all_controls ]
+            if not self.use_tip:
+                ik_controls += [ self.bones.ctrl.end_twist ]
+
+            add_generic_snap_fk_to_ik(
+                self.generator, panel_controls=ctrls,
+                fk_bones=self.bones.ctrl.fk, ik_bones=self.get_ik_final(), ik_ctrl_bones=ik_controls,
+                undo_copy_scale=True,
+                extra_text=' (%s)' % (rig_name)
+            )
 
     @stage.generate_widgets
     def make_master_control_widget(self):
@@ -340,7 +362,7 @@ class Rig(SimpleChainRig):
     # Spline controls
 
     @stage.generate_bones
-    def make_control_chain(self):
+    def make_main_control_chain(self):
         self.bones.ctrl.main = map_list(self.make_main_control_bone, self.main_control_poslist)
         self.bones.ctrl.start = map_list(self.make_extra_control_bone, self.start_control_poslist)
         self.bones.ctrl.end = map_list(self.make_extra_control_bone, self.end_control_poslist)
@@ -385,15 +407,15 @@ class Rig(SimpleChainRig):
         return self.make_bone_by_spec(pos_spec, pos_spec[2], 0.9)
 
     @stage.parent_bones
-    def parent_control_chain(self):
+    def parent_main_control_chain(self):
         self.set_bone_parent(self.bones.ctrl.main[0], self.bones.ctrl.master)
 
     @stage.configure_bones
-    def configure_control_chain(self):
+    def configure_main_control_chain(self):
         for info in self.all_controls:
-            self.configure_control_bone(*info)
+            self.configure_main_control_bone(*info)
 
-    def configure_control_bone(self, ctrl, subtype, index):
+    def configure_main_control_bone(self, ctrl, subtype, index):
         bone = self.get_bone(ctrl)
 
         can_rotate = False
@@ -417,22 +439,22 @@ class Rig(SimpleChainRig):
             bone.lock_scale = (True, True, True)
 
     @stage.rig_bones
-    def rig_control_chain(self):
+    def rig_main_control_chain(self):
         for info in self.all_controls:
-            self.rig_control_bone(*info)
+            self.rig_main_control_bone(*info)
 
-    def rig_control_bone(self, ctrl, subtype, index):
+    def rig_main_control_bone(self, ctrl, subtype, index):
         if self.use_stretch and subtype == 0 and index == 0:
             self.make_constraint(ctrl, 'MAINTAIN_VOLUME', mode='UNIFORM', owner_space='LOCAL')
 
         self.rig_enable_control_driver(self.get_bone(ctrl).bone, 'hide', subtype, index, disable=True)
 
     @stage.generate_widgets
-    def make_control_widgets(self):
+    def make_main_control_widgets(self):
         for info in self.all_controls:
-            self.make_control_widget(*info)
+            self.make_main_control_widget(*info)
 
-    def make_control_widget(self, ctrl, subtype, index):
+    def make_main_control_widget(self, ctrl, subtype, index):
         if subtype == 0 and index == 0:
             if len(self.start_control_poslist) > 0:
                 create_twist_widget(self.obj, ctrl, size=1, head_tail=0.25)
@@ -442,6 +464,47 @@ class Rig(SimpleChainRig):
             create_circle_widget(self.obj, ctrl, radius=0.5, head_tail=0.25)
         else:
             create_sphere_widget(self.obj, ctrl)
+
+    ##############################
+    # FK Control chain
+
+    @stage.generate_bones
+    def make_control_chain(self):
+        if self.use_fk:
+            super().make_control_chain()
+
+    @stage.parent_bones
+    def parent_control_chain(self):
+        if self.use_fk:
+            super().parent_control_chain()
+
+            self.set_bone_parent(self.bones.ctrl.fk[0], self.bones.ctrl.master)
+
+    @stage.configure_bones
+    def configure_control_chain(self):
+        if self.use_fk:
+            super().configure_control_chain()
+
+            ControlLayersOption.FK.assign(self.params, self.obj, self.bones.ctrl.fk)
+
+    @stage.rig_bones
+    def rig_control_chain(self):
+        if self.use_fk:
+            for args in zip(self.bones.ctrl.fk, [None] + self.bones.ctrl.fk):
+                self.rig_control_bone(*args)
+
+    def rig_control_bone(self, fk, fk_prev):
+        if fk_prev:
+            self.get_bone(fk).bone.use_inherit_scale = False
+            self.make_constraint(fk, 'COPY_SCALE', fk_prev, use_offset=True, space='POSE')
+
+    @stage.generate_widgets
+    def make_control_widgets(self):
+        if self.use_fk:
+            super().make_control_widgets()
+
+    def make_control_widget(self, ctrl):
+        create_circle_widget(self.obj, ctrl, radius=0.3, head_tail=0.5)
 
     ##############################
     # Spline tip parent MCH
@@ -760,6 +823,11 @@ class Rig(SimpleChainRig):
     def rig_org_bone(self, i, org, ik):
         self.make_constraint(org, 'COPY_TRANSFORMS', ik)
 
+        if self.use_fk:
+            con = self.make_constraint(org, 'COPY_TRANSFORMS', self.bones.ctrl.fk[i])
+
+            self.make_driver(con, 'influence', variables=[(self.bones.ctrl.master, 'IK_FK')])
+
     ##############################
     # UI
 
@@ -800,6 +868,12 @@ class Rig(SimpleChainRig):
             description="Maximum supported scale factor for the spline control bones"
         )
 
+        params.sik_fk_controls = bpy.props.BoolProperty(
+            name="FK Controls", default=True,
+            description="Generate an FK control chain for the tentacle"
+        )
+
+        ControlLayersOption.FK.add_parameters(params)
 
     @classmethod
     def parameters_ui(self, layout, params):
@@ -818,6 +892,12 @@ class Rig(SimpleChainRig):
         col = layout.column()
         col.active = params.sik_radius_scaling
         col.prop(params, 'sik_max_radius')
+
+        layout.prop(params, 'sik_fk_controls')
+
+        col = layout.column()
+        col.active = params.sik_fk_controls
+        ControlLayersOption.FK.parameters_ui(col, params)
 
 
 def create_twist_widget(rig, bone_name, size=1.0, head_tail=0.5, bone_transform_name=None):
