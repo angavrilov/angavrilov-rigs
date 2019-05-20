@@ -244,6 +244,7 @@ class Rig(SimpleChainRig):
             panel = self.script.panel_with_selected_check(ctrls)
             panel.custom_prop(master, 'end_controls', text="End Controls")
 
+        # End twist correction for directly controllable tip
         if self.use_tip:
             maxval = len(self.bones.org) / 2
 
@@ -255,6 +256,7 @@ class Rig(SimpleChainRig):
             panel = self.script.panel_with_selected_check(ctrls)
             panel.custom_prop(master, 'end_twist', text="End Twist Fix")
 
+        # IK/FK switch
         if self.use_fk:
             self.make_property(master, 'IK_FK', 0.0, description='IK/FK switch for '+rig_name)
 
@@ -269,8 +271,14 @@ class Rig(SimpleChainRig):
                 self.generator, panel_controls=ctrls,
                 fk_bones=self.bones.ctrl.fk, ik_bones=self.get_ik_final(), ik_ctrl_bones=ik_controls,
                 undo_copy_scale=True,
-                extra_text=' (%s)' % (rig_name)
+                rig_name=rig_name
             )
+
+        # Generate parent switch UI now
+        builder = SwitchParentBuilder(self.generator)
+
+        for (bone, subtype, index) in self.all_controls[1:]:
+            builder.configure_child_now(bone)
 
     @stage.generate_widgets
     def make_master_control_widget(self):
