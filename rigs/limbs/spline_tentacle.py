@@ -222,7 +222,7 @@ class Rig(SimpleChainRig):
         master = self.bones.ctrl.master
         ctrls = self.bones.ctrl.flatten()
         rig_name = self.name_base + self.name_suffix
-        panel = self.script.panel_with_selected_check(ctrls)
+        panel = self.script.panel_with_selected_check(self, ctrls)
 
         # Properties for enabling extra controls
         if self.params.sik_start_controls > 0:
@@ -271,8 +271,6 @@ class Rig(SimpleChainRig):
                 rig_name=rig_name
             )
 
-        # Generate parent switch UI now
-        SwitchParentBuilder(self.generator).configure_rig_children_now(self)
 
     @stage.generate_widgets
     def make_master_control_widget(self):
