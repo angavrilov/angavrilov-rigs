@@ -222,6 +222,7 @@ class Rig(SimpleChainRig):
         master = self.bones.ctrl.master
         ctrls = self.bones.ctrl.flatten()
         rig_name = self.name_base + self.name_suffix
+        panel = self.script.panel_with_selected_check(ctrls)
 
         # Properties for enabling extra controls
         if self.params.sik_start_controls > 0:
@@ -231,7 +232,6 @@ class Rig(SimpleChainRig):
                 description="Enabled extra start controls for "+rig_name
             )
 
-            panel = self.script.panel_with_selected_check(ctrls)
             panel.custom_prop(master, 'start_controls', text="Start Controls")
 
         if self.params.sik_end_controls > 0:
@@ -241,7 +241,6 @@ class Rig(SimpleChainRig):
                 description="Enabled extra end controls for "+rig_name
             )
 
-            panel = self.script.panel_with_selected_check(ctrls)
             panel.custom_prop(master, 'end_controls', text="End Controls")
 
         # End twist correction for directly controllable tip
@@ -253,14 +252,12 @@ class Rig(SimpleChainRig):
                 description="Rough end twist estimate in full rotations. The rig auto-corrects it to the actual tip orientation within 180 degrees"
             )
 
-            panel = self.script.panel_with_selected_check(ctrls)
             panel.custom_prop(master, 'end_twist', text="End Twist Fix")
 
         # IK/FK switch
         if self.use_fk:
             self.make_property(master, 'IK_FK', 0.0, description='IK/FK switch for '+rig_name)
 
-            panel = self.script.panel_with_selected_check(ctrls)
             panel.custom_prop(master, 'IK_FK', text="IK - FK", slider=True)
 
             ik_controls = [ item[0] for item in self.all_controls ]
@@ -268,17 +265,14 @@ class Rig(SimpleChainRig):
                 ik_controls += [ self.bones.ctrl.end_twist ]
 
             add_generic_snap_fk_to_ik(
-                self.generator, panel_controls=ctrls,
+                panel,
                 fk_bones=self.bones.ctrl.fk, ik_bones=self.get_ik_final(), ik_ctrl_bones=ik_controls,
                 undo_copy_scale=True,
                 rig_name=rig_name
             )
 
         # Generate parent switch UI now
-        builder = SwitchParentBuilder(self.generator)
-
-        for (bone, subtype, index) in self.all_controls[1:]:
-            builder.configure_child_now(bone)
+        SwitchParentBuilder(self.generator).configure_rig_children_now(self)
 
     @stage.generate_widgets
     def make_master_control_widget(self):
@@ -504,7 +498,7 @@ class Rig(SimpleChainRig):
     def rig_control_bone(self, fk, fk_prev):
         if fk_prev:
             self.get_bone(fk).bone.use_inherit_scale = False
-            self.make_constraint(fk, 'COPY_SCALE', fk_prev, use_offset=True, space='POSE')
+            self.make_constraint(fk, 'COPY_SCALE', fk_prev, use_offset=True, space='POSE', name='Parent Scale')
 
     @stage.generate_widgets
     def make_control_widgets(self):
