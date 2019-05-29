@@ -3,7 +3,7 @@ import bpy
 from rigify.utils.bones import align_chain_x_axis
 from rigify.utils.widgets_basic import create_circle_widget
 from rigify.utils.layers import ControlLayersOption
-from rigify.utils.misc import map_list, map_apply
+from rigify.utils.misc import map_list
 
 from rigify.base_rig import stage
 from rigify.rigs.chain_rigs import TweakChainRig
@@ -24,20 +24,21 @@ class Rig(TweakChainRig):
     @stage.parent_bones
     def parent_control_chain(self):
         # use_connect=False for backward compatibility
-        self.parent_bone_chain(self.bones.ctrl.main, use_connect=False)
+        self.parent_bone_chain(self.bones.ctrl.fk, use_connect=False)
 
     # Configure
     @stage.configure_bones
     def configure_tweak_chain(self):
-        super(Rig,self).configure_tweak_chain()
+        super().configure_tweak_chain()
 
         ControlLayersOption.TWEAK.assign(self.params, self.obj, self.bones.ctrl.tweak)
 
     # Rig
     @stage.rig_bones
     def rig_control_chain(self):
-        ctrls = self.bones.ctrl.main
-        map_apply(self.rig_control_bone, ctrls, [None] + ctrls)
+        ctrls = self.bones.ctrl.fk
+        for args in zip(ctrls, [None] + ctrls):
+            self.rig_control_bone(ctrl, prev_ctrl)
 
     def rig_control_bone(self, ctrl, prev_ctrl):
         if prev_ctrl:
