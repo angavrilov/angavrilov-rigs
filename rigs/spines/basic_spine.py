@@ -29,7 +29,7 @@ from rigify.utils.layers import ControlLayersOption
 from rigify.utils.naming import strip_org, make_deformer_name, make_mechanism_name
 from rigify.utils.bones import BoneDict, put_bone, align_bone_to_axis
 from rigify.utils.widgets_basic import create_circle_widget, create_cube_widget
-from rigify.utils.misc import map_list, map_apply
+from rigify.utils.misc import map_list
 
 from rigify.base_rig import stage
 
@@ -61,12 +61,11 @@ class Rig(TweakChainRig):
     @stage.generate_bones
     def make_control_chain(self):
         orgs = self.bones.org
-        ctrl = self.bones.ctrl
         pivot = self.pivot_pos
 
-        ctrl.master = self.make_torso_control_bone(orgs[pivot], 'torso')
-        ctrl.hips = self.make_hips_control_bone(orgs[pivot-1], 'hips')
-        ctrl.chest = self.make_chest_control_bone(orgs[pivot], 'chest')
+        self.bones.ctrl.master = self.make_torso_control_bone(orgs[pivot], 'torso')
+        self.bones.ctrl.hips = self.make_hips_control_bone(orgs[pivot-1], 'hips')
+        self.bones.ctrl.chest = self.make_chest_control_bone(orgs[pivot], 'chest')
 
     def make_torso_control_bone(self, org, name):
         name = self.copy_bone(org, name, parent=False)
@@ -187,8 +186,10 @@ class Rig(TweakChainRig):
     def rig_mch_chain(self):
         ctrl = self.bones.ctrl
         chain = self.bones.mch.chain
-        map_apply(self.rig_mch_bone, chain.hips, repeat(ctrl.hips), repeat(len(chain.hips)))
-        map_apply(self.rig_mch_bone, chain.chest, repeat(ctrl.chest), repeat(len(chain.chest)))
+        for mch in chain.hips:
+            self.rig_mch_bone(mch, ctrl.hips, len(chain.hips))
+        for mch in chain.chest:
+            self.rig_mch_bone(mch, ctrl.chest, len(chain.chest))
 
     def rig_mch_bone(self, mch, control, count):
         self.make_constraint(mch, 'COPY_TRANSFORMS', control, space='LOCAL', influence=1/count)
@@ -201,7 +202,8 @@ class Rig(TweakChainRig):
         mch = self.bones.mch
         chain = mch.chain
         parents = [chain.hips[0], *chain.hips[0:-1], mch.pivot, *chain.chest[1:], chain.chest[-1]]
-        map_apply(self.set_bone_parent, self.bones.ctrl.tweak, parents)
+        for args in zip(self.bones.ctrl.tweak, parents):
+            self.set_bone_parent(*args)
 
     @stage.configure_bones
     def configure_tweak_chain(self):

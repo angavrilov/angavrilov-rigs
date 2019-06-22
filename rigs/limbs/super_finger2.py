@@ -1,15 +1,14 @@
 import bpy
 import re
 
-from itertools import count, repeat
+from itertools import count
 
 from rigify.utils.errors import MetarigError
-from rigify.utils.rig import connected_children_names
 from rigify.utils.bones import flip_bone, align_chain_x_axis
-from rigify.utils.naming import strip_org, make_mechanism_name, make_deformer_name
+from rigify.utils.naming import make_derived_name
 from rigify.utils.widgets import create_widget
 from rigify.utils.widgets_basic import create_circle_widget
-from rigify.utils.misc import map_list, map_apply
+from rigify.utils.misc import map_list
 
 from rigify.base_rig import stage
 from rigify.rigs.chain_rigs import SimpleChainRig
@@ -33,19 +32,12 @@ class Rig(SimpleChainRig):
     @stage.generate_bones
     def make_master_control_bone(self):
         orgs = self.bones.org
-        name = self.copy_bone(orgs[0], self.master_control_name(orgs[0]), parent=True)
+        name = self.copy_bone(orgs[0], make_derived_name(orgs[0], 'ctrl', '_master'), parent=True)
         self.bones.ctrl.master = name
 
         first_bone = self.get_bone(orgs[0])
         last_bone = self.get_bone(orgs[-1])
         self.get_bone(name).tail += (last_bone.tail - first_bone.head) * 1.25
-
-    def master_control_name(self, org_name):
-        # Compute master bone name: inherit .LR suffix, but strip trailing digits
-        name_parts = re.match(r'^(.*?)(?:([._-])?\d+)?((?:[._-][LlRr])?)(?:\.\d+)?$', strip_org(org_name))
-        name_base, name_sep, name_suffix = name_parts.groups()
-        name_base += name_sep if name_sep else '_'
-        return name_base + 'master' + name_suffix
 
     @stage.configure_bones
     def configure_master_control_bone(self):
@@ -78,14 +70,14 @@ class Rig(SimpleChainRig):
     @stage.generate_bones
     def make_control_chain(self):
         orgs = self.bones.org
-        self.bones.ctrl.main = map_list(self.make_control_bone, orgs)
-        self.bones.ctrl.main += [self.make_tip_control_bone(orgs[-1], orgs[0])]
+        self.bones.ctrl.fk = map_list(self.make_control_bone, orgs)
+        self.bones.ctrl.fk += [self.make_tip_control_bone(orgs[-1], orgs[0])]
 
     def make_control_bone(self, org):
-        return self.copy_bone(org, strip_org(org), parent=False)
+        return self.copy_bone(org, make_derived_name(org, 'ctrl'), parent=False)
 
     def make_tip_control_bone(self, org, name_org):
-        name = self.copy_bone(org, strip_org(name_org), parent=False)
+        name = self.copy_bone(org, make_derived_name(name_org, 'ctrl'), parent=False)
 
         flip_bone(self.obj, name)
         self.get_bone(name).length /= 2
@@ -94,12 +86,14 @@ class Rig(SimpleChainRig):
 
     @stage.parent_bones
     def parent_control_chain(self):
-        ctrls = self.bones.ctrl.main
-        map_apply(self.set_bone_parent, ctrls, self.bones.mch.bend + ctrls[-2:])
+        ctrls = self.bones.ctrl.fk
+        for args in zip(ctrls, self.bones.mch.bend + ctrls[-2:]):
+            self.set_bone_parent(*args)
 
     @stage.configure_bones
     def configure_control_chain(self):
-        map_apply(self.configure_control_bone, self.bones.org + [None], self.bones.ctrl.main)
+        for args in zip(self.bones.org + [None], self.bones.ctrl.fk):
+            self.configure_control_bone(*args)
 
     def configure_control_bone(self, org, ctrl):
         if org:
@@ -111,7 +105,7 @@ class Rig(SimpleChainRig):
             bone.lock_scale = (True, True, True)
 
     def make_control_widget(self, ctrl):
-        if ctrl == self.bones.ctrl.main[-1]:
+        if ctrl == self.bones.ctrl.fk[-1]:
             # Tip control
             create_circle_widget(self.obj, ctrl, radius=0.3, head_tail=0.0)
         else:
@@ -125,12 +119,13 @@ class Rig(SimpleChainRig):
         self.bones.mch.bend = map_list(self.make_mch_bend_bone, self.bones.org)
 
     def make_mch_bend_bone(self, org):
-        return self.copy_bone(org, make_mechanism_name(strip_org(org)) + "_drv", parent=False)
+        return self.copy_bone(org, make_derived_name(org, 'mch', '_drv'), parent=False)
 
     @stage.parent_bones
     def parent_mch_bend_chain(self):
-        ctrls = self.bones.ctrl.main
-        map_apply(self.set_bone_parent, self.bones.mch.bend, [self.first_parent] + ctrls)
+        ctrls = self.bones.ctrl.fk
+        for args in zip(self.bones.mch.bend, [self.first_parent] + ctrls):
+            self.set_bone_parent(*args)
 
     # Match axis to expression
     axis_options = {
@@ -152,7 +147,8 @@ class Rig(SimpleChainRig):
 
     @stage.rig_bones
     def rig_mch_bend_chain(self):
-        map_apply(self.rig_mch_bend_bone, count(0), self.bones.mch.bend)
+        for args in zip(count(0), self.bones.mch.bend):
+            self.rig_mch_bend_bone(*args)
 
     def rig_mch_bend_bone(self, i, mch):
         master = self.bones.ctrl.master
@@ -180,17 +176,19 @@ class Rig(SimpleChainRig):
         self.bones.mch.stretch = map_list(self.make_mch_stretch_bone, self.bones.org)
 
     def make_mch_stretch_bone(self, org):
-        return self.copy_bone(org, make_mechanism_name(strip_org(org)), parent=False)
+        return self.copy_bone(org, make_derived_name(org, 'mch'), parent=False)
 
     @stage.parent_bones
     def parent_mch_stretch_chain(self):
-        ctrls = self.bones.ctrl.main
-        map_apply(self.set_bone_parent, self.bones.mch.stretch, [self.first_parent] + ctrls[1:])
+        ctrls = self.bones.ctrl.fk
+        for args in zip(self.bones.mch.stretch, [self.first_parent] + ctrls[1:]):
+            self.set_bone_parent(*args)
 
     @stage.rig_bones
     def rig_mch_stretch_chain(self):
-        ctrls = self.bones.ctrl.main
-        map_apply(self.rig_mch_stretch_bone, count(0), self.bones.mch.stretch, ctrls, ctrls[1:])
+        ctrls = self.bones.ctrl.fk
+        for args in zip(count(0), self.bones.mch.stretch, ctrls, ctrls[1:]):
+            self.rig_mch_stretch_bone(*args)
 
     def rig_mch_stretch_bone(self, i, mch, ctrl, ctrl_next):
         if i == 0:
@@ -205,7 +203,8 @@ class Rig(SimpleChainRig):
 
     @stage.rig_bones
     def rig_org_chain(self):
-        map_apply(self.rig_org_bone, self.bones.org, self.bones.mch.stretch)
+        for args in zip(self.bones.org, self.bones.mch.stretch):
+            self.rig_org_bone(*args)
 
     ##############################
     # Deform chain
@@ -217,7 +216,7 @@ class Rig(SimpleChainRig):
         self.make_property(master, 'finger_curve', 0.0, description="Rubber hose finger cartoon effect")
 
         # Create UI
-        panel = self.script.panel_with_selected_check(self.bones.ctrl.flatten())
+        panel = self.script.panel_with_selected_check(self, self.bones.ctrl.flatten())
         panel.custom_prop(master, 'finger_curve', text="Curvature", slider=True)
 
     def rig_deform_bone(self, org, deform):

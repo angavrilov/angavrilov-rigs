@@ -20,18 +20,18 @@
 
 import bpy
 
-from itertools import count, repeat
+from itertools import count
 
 from rigify.rigs.chain_rigs import TweakChainRig, SimpleChainRig
 
 from rigify.utils.errors import MetarigError
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.naming import strip_org, make_deformer_name, make_mechanism_name
-from rigify.utils.bones import BoneDict, put_bone, align_bone_to_axis, align_bone_orientation
+from rigify.utils.bones import BoneDict, put_bone, copy_bone_position, align_bone_to_axis, align_bone_orientation
 from rigify.utils.bones import is_same_position, is_connected_position
 from rigify.utils.widgets_basic import create_circle_widget, create_cube_widget
 from rigify.utils.widgets_special import create_neck_bend_widget, create_neck_tweak_widget
-from rigify.utils.misc import map_list, map_apply
+from rigify.utils.misc import map_list
 
 from rigify.base_rig import stage
 
@@ -115,19 +115,19 @@ class Rig(TweakChainRig):
 
     @stage.parent_bones
     def parent_control_chain(self):
-        bones = self.bones
-        self.set_bone_parent(bones.ctrl.neck, bones.mch.rot_neck)
-        self.set_bone_parent(bones.ctrl.head, bones.mch.rot_head)
+        ctrl = self.bones.ctrl
+        mch = self.bones.mch
+        self.set_bone_parent(ctrl.neck, mch.rot_neck)
+        self.set_bone_parent(ctrl.head, mch.rot_head)
         if self.long_neck:
-            self.set_bone_parent(bones.ctrl.neck_bend, bones.mch.stretch)
+            self.set_bone_parent(ctrl.neck_bend, mch.stretch)
 
     @stage.configure_bones
     def configure_control_chain(self):
-        bones = self.bones
-        self.configure_control_bone(bones.org[0], bones.ctrl.neck)
-        self.configure_control_bone(bones.org[-1], bones.ctrl.head)
+        self.configure_control_bone(self.bones.org[0], self.bones.ctrl.neck)
+        self.configure_control_bone(self.bones.org[-1], self.bones.ctrl.head)
         if self.long_neck:
-            self.configure_control_bone(bones.org[0], bones.ctrl.neck_bend)
+            self.configure_control_bone(self.bones.org[0], self.bones.ctrl.neck_bend)
 
     @stage.generate_widgets
     def make_control_widgets(self):
@@ -212,9 +212,8 @@ class Rig(TweakChainRig):
 
     @stage.parent_bones
     def parent_mch_control_bones(self):
-        bones = self.bones
-        self.set_bone_parent(bones.mch.rot_head, bones.ctrl.neck)
-        self.set_bone_parent(bones.mch.stretch, bones.ctrl.neck)
+        self.set_bone_parent(self.bones.mch.rot_head, self.bones.ctrl.neck)
+        self.set_bone_parent(self.bones.mch.stretch, self.bones.ctrl.neck)
 
     @stage.configure_bones
     def configure_follow_properties(self):
@@ -231,9 +230,9 @@ class Rig(TweakChainRig):
         self.make_property(self.prop_bone, 'neck_follow', default=0.5)
         self.make_property(self.prop_bone, 'head_follow', default=0.0)
 
-        self.script.add_panel_selected_check(controls)
-        self.script.add_panel_custom_prop(self.prop_bone, 'neck_follow', slider=True)
-        self.script.add_panel_custom_prop(self.prop_bone, 'head_follow', slider=True)
+        panel = self.script.panel_with_selected_check(self, controls)
+        panel.custom_prop(self.prop_bone, 'neck_follow', slider=True)
+        panel.custom_prop(self.prop_bone, 'head_follow', slider=True)
 
     @stage.rig_bones
     def rig_mch_control_bones(self):
@@ -276,7 +275,8 @@ class Rig(TweakChainRig):
         if self.long_neck:
             ik = self.bones.mch.ik
             head = self.bones.ctrl.head
-            map_apply(self.rig_mch_ik_bone, count(0), ik, repeat(len(ik)), repeat(head))
+            for args in zip(count(0), ik):
+                self.rig_mch_ik_bone(*args, len(ik), head)
 
     def rig_mch_ik_bone(self, i, mch, ik_len, head):
         if i == ik_len - 1:
@@ -293,11 +293,7 @@ class Rig(TweakChainRig):
         self.bones.mch.chain = map_list(self.make_mch_bone, orgs[1:-1])
 
     def make_mch_bone(self, org):
-        name = self.copy_bone(org, make_mechanism_name(strip_org(org)), parent=False)
-        bone = self.get_bone(name)
-        bone.length /= 4
-        bone.use_inherit_scale = False
-        return name
+        return self.copy_bone(org, make_mechanism_name(strip_org(org)), parent=False, scale=1/4)
 
     @stage.parent_bones
     def align_mch_chain(self):
@@ -307,18 +303,22 @@ class Rig(TweakChainRig):
     @stage.parent_bones
     def parent_mch_chain(self):
         mch = self.bones.mch
-        map_apply(self.set_bone_parent, mch.chain, repeat(mch.stretch))
+        for bone in mch.chain:
+            self.set_bone_parent(bone, mch.stretch)
+            self.get_bone(bone).use_inherit_scale = False
 
     @stage.rig_bones
     def rig_mch_chain(self):
         chain = self.bones.mch.chain
         if self.long_neck:
             ik = self.bones.mch.ik
-            map_apply(self.rig_mch_bone_long, count(0), chain, repeat(len(chain)), ik[1:])
+            for args in zip(count(0), chain, ik[1:]):
+                self.rig_mch_bone_long(*args, len(chain))
         else:
-            map_apply(self.rig_mch_bone, count(0), chain, repeat(len(chain)))
+            for args in zip(count(0), chain):
+                self.rig_mch_bone(*args, len(chain))
 
-    def rig_mch_bone_long(self, i, mch, len_mch, ik):
+    def rig_mch_bone_long(self, i, mch, ik, len_mch):
         ctrl = self.bones.ctrl
 
         self.make_constraint(mch, 'COPY_LOCATION', ik)
@@ -362,13 +362,7 @@ class Rig(TweakChainRig):
 
             self.use_connect_tweak = True
 
-            bone = self.get_bone(name)
-            org_bone = self.get_bone(org)
-
-            bone.head = org_bone.head
-            bone.tail = org_bone.tail
-            bone.roll = org_bone.roll
-            bone.length /= 2
+            copy_bone_position(self.obj, org, name, scale=0.5)
 
             name = self.rename_bone(name, 'tweak_' + strip_org(org))
             parent_ctrl.tweak[-1] = name
@@ -388,7 +382,8 @@ class Rig(TweakChainRig):
             if first_tweak_parent:
                 self.set_bone_parent(mch.rot_neck, first_tweak_parent)
 
-        map_apply(self.set_bone_parent, ctrl.tweak, [ctrl.neck, *mch.chain])
+        for args in zip(ctrl.tweak, [ctrl.neck, *mch.chain]):
+            self.set_bone_parent(*args)
 
     @stage.configure_bones
     def configure_tweak_chain(self):
@@ -421,7 +416,8 @@ class Rig(TweakChainRig):
     @stage.rig_bones
     def rig_org_chain(self):
         tweaks = self.bones.ctrl.tweak + [self.bones.ctrl.head]
-        map_apply(self.rig_org_bone, self.bones.org, tweaks, tweaks[1:] + [None])
+        for args in zip(self.bones.org, tweaks, tweaks[1:] + [None]):
+            self.rig_org_bone(*args)
 
 
     ####################################################
