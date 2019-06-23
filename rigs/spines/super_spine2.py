@@ -23,11 +23,12 @@ import bpy
 from rigify.utils.errors import MetarigError
 from rigify.utils.rig import connected_children_names
 from rigify.utils.layers import ControlLayersOption
-from rigify.utils.bones import BoneUtilityMixin
+from rigify.utils.bones import BoneUtilityMixin, flip_bone
 
 from rigify.base_generate import SubstitutionRig
 
 from .basic_spine import Rig as BasicSpineRig
+from .basic_tail import Rig as BasicTailRig
 from .super_head import Rig as SuperHeadRig
 
 
@@ -38,8 +39,10 @@ class Rig(SubstitutionRig, BoneUtilityMixin):
         params_copy = dict(self.params)
         orgs = [self.base_bone] + connected_children_names(self.obj, self.base_bone)
 
+        # Split the bone list according to the settings
         spine_orgs = orgs
         head_orgs = None
+        tail_orgs = None
 
         pivot_pos = self.params.pivot_pos
 
@@ -54,19 +57,50 @@ class Rig(SubstitutionRig, BoneUtilityMixin):
             head_orgs = orgs[neck_pos-1 : ]
 
         if self.params.use_tail:
-            raise MetarigError("RIGIFY ERROR: Tail not implemented.")
+            tail_pos = self.params.tail_pos
+            if tail_pos < 2:
+                raise MetarigError("RIGIFY ERROR: Tail is too short.")
+            if tail_pos >= pivot_pos:
+                raise MetarigError("RIGIFY ERROR: Tail cannot be above or the same as pivot.")
 
-        if head_orgs:
+            tail_orgs = list(reversed(spine_orgs[0 : tail_pos]))
+            spine_orgs = spine_orgs[tail_pos : ]
+            pivot_pos -= tail_pos
+
+        # Split the bone chain and flip the tail
+        if head_orgs or tail_orgs:
             bpy.ops.object.mode_set(mode='EDIT')
-            self.obj.data.edit_bones[head_orgs[0]].use_connect = False
+
+            if spine_orgs[0] != orgs[0]:
+                self.set_bone_parent(spine_orgs[0], self.get_bone_parent(orgs[0]))
+
+            if head_orgs:
+                self.get_bone(head_orgs[0]).use_connect = False
+
+            if tail_orgs:
+                for org in tail_orgs:
+                    self.set_bone_parent(org, None)
+
+                for org in tail_orgs:
+                    flip_bone(self.obj, org)
+
+                self.set_bone_parent(tail_orgs[0], spine_orgs[0])
+                self.parent_bone_chain(tail_orgs, use_connect=True)
+
             bpy.ops.object.mode_set(mode='OBJECT')
 
-        self.assign_params(spine_orgs[0], **params_copy, pivot_pos=pivot_pos)
+        # Create the parts
+        self.assign_params(spine_orgs[0], params_copy, pivot_pos=pivot_pos)
 
         result = [ self.instantiate_rig(BasicSpineRig, spine_orgs[0]) ]
 
+        if tail_orgs:
+            self.assign_params(tail_orgs[0], params_copy, connect_chain=True)
+
+            result += [ self.instantiate_rig(BasicTailRig, tail_orgs[0]) ]
+
         if head_orgs:
-            self.assign_params(head_orgs[0], **params_copy, connect_chain=True)
+            self.assign_params(head_orgs[0], params_copy, connect_chain=True)
 
             result += [ self.instantiate_rig(SuperHeadRig, head_orgs[0]) ]
 
@@ -75,6 +109,7 @@ class Rig(SubstitutionRig, BoneUtilityMixin):
 
 def add_parameters(params):
     BasicSpineRig.add_parameters(params)
+    BasicTailRig.add_parameters(params)
     SuperHeadRig.add_parameters(params)
 
     params.neck_pos = bpy.props.IntProperty(
@@ -82,12 +117,6 @@ def add_parameters(params):
         default     = 6,
         min         = 0,
         description = 'Neck start position'
-    )
-
-    params.copy_rotation_axes = bpy.props.BoolVectorProperty(
-        size=3,
-        description="Automation axes",
-        default=tuple([i == 0 for i in range(0, 3)])
     )
 
     params.tail_pos = bpy.props.IntProperty(

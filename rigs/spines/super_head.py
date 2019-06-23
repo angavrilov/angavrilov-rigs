@@ -26,7 +26,7 @@ from rigify.rigs.chain_rigs import TweakChainRig, SimpleChainRig
 
 from rigify.utils.errors import MetarigError
 from rigify.utils.layers import ControlLayersOption
-from rigify.utils.naming import strip_org, make_deformer_name, make_mechanism_name
+from rigify.utils.naming import strip_org, make_derived_name
 from rigify.utils.bones import BoneDict, put_bone, copy_bone_position, align_bone_to_axis, align_bone_orientation
 from rigify.utils.bones import is_same_position, is_connected_position
 from rigify.utils.widgets_basic import create_circle_widget, create_cube_widget
@@ -45,14 +45,13 @@ class Rig(TweakChainRig):
 
     def initialize(self):
         if len(self.bones.org) < 2:
-            raise MetarigError("RIGIFY ERROR: Bone '%s': input to rig type must be a chain of 3 or more bones" % (strip_org(self.base_bone)))
+            raise MetarigError("RIGIFY ERROR: Bone '%s': input to rig type must be a chain of 2 or more bones" % (strip_org(self.base_bone)))
 
         self.use_connect = self.params.connect_chain
         self.use_connect_master = False
         self.use_connect_tweak = False
 
         self.long_neck = len(self.bones.org) > 3
-        self.length = sum([self.get_bone(b).length for b in self.bones.org])
 
         if self.use_connect:
             parent = self.rigify_parent
@@ -185,12 +184,10 @@ class Rig(TweakChainRig):
         mch.stretch = self.make_mch_stretch_bone(orgs[0], 'STR-neck', orgs[-1])
 
     def make_mch_rotation_bone(self, org, name):
-        name = self.copy_bone(org, make_mechanism_name(name), parent=True)
-        self.get_bone(name).length = self.length / 5
-        return name
+        return self.copy_bone(org, make_derived_name(name, 'mch'), parent=True)
 
     def make_mch_stretch_bone(self, org, name, org_head):
-        name = self.copy_bone(org, make_mechanism_name(name), parent=False)
+        name = self.copy_bone(org, make_derived_name(name, 'mch'), parent=False)
         self.get_bone(name).tail = self.get_bone(org_head).head
         return name
 
@@ -221,18 +218,20 @@ class Rig(TweakChainRig):
         controls = self.bones.ctrl.flatten()
 
         if self.use_connect_master:
+            owner = self.rigify_parent
             self.prop_bone = self.follow_bone
             controls += self.rigify_parent.bones.ctrl.flatten()
         else:
+            owner = self
             self.prop_bone = self.ctrl.head
 
         # Generate properties and script
         self.make_property(self.prop_bone, 'neck_follow', default=0.5)
         self.make_property(self.prop_bone, 'head_follow', default=0.0)
 
-        panel = self.script.panel_with_selected_check(self, controls)
-        panel.custom_prop(self.prop_bone, 'neck_follow', slider=True)
-        panel.custom_prop(self.prop_bone, 'head_follow', slider=True)
+        panel = self.script.panel_with_selected_check(owner, controls)
+        panel.custom_prop(self.prop_bone, 'neck_follow', text='Neck Follow', slider=True)
+        panel.custom_prop(self.prop_bone, 'head_follow', text='Head Follow', slider=True)
 
     @stage.rig_bones
     def rig_mch_control_bones(self):
@@ -261,7 +260,7 @@ class Rig(TweakChainRig):
             self.bones.mch.ik = map_list(self.make_mch_ik_bone, orgs[0:-1])
 
     def make_mch_ik_bone(self, org):
-        return self.copy_bone(org, make_mechanism_name('IK-'+strip_org(org)), parent=False)
+        return self.copy_bone(org, make_derived_name(org, 'mch', '_ik'), parent=False)
 
     @stage.parent_bones
     def parent_mch_ik_chain(self):
@@ -293,7 +292,7 @@ class Rig(TweakChainRig):
         self.bones.mch.chain = map_list(self.make_mch_bone, orgs[1:-1])
 
     def make_mch_bone(self, org):
-        return self.copy_bone(org, make_mechanism_name(strip_org(org)), parent=False, scale=1/4)
+        return self.copy_bone(org, make_derived_name(org, 'mch'), parent=False, scale=1/4)
 
     @stage.parent_bones
     def align_mch_chain(self):
