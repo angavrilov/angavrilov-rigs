@@ -1,4 +1,26 @@
+#====================== BEGIN GPL LICENSE BLOCK ======================
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software Foundation,
+#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+#
+#======================= END GPL LICENSE BLOCK ========================
+
+# <pep8 compliant>
+
 import bpy
+
+from itertools import count
 
 from rigify.utils.bones import align_chain_x_axis
 from rigify.utils.widgets_basic import create_circle_widget
@@ -11,7 +33,7 @@ from rigify.rigs.chain_rigs import TweakChainRig
 
 class Rig(TweakChainRig):
     def initialize(self):
-        super(Rig,self).initialize()
+        super().initialize()
 
         self.copy_rotation_axes = self.params.copy_rotation_axes
 
@@ -37,10 +59,10 @@ class Rig(TweakChainRig):
     @stage.rig_bones
     def rig_control_chain(self):
         ctrls = self.bones.ctrl.fk
-        for args in zip(ctrls, [None] + ctrls):
+        for args in zip(count(0), ctrls, [None] + ctrls):
             self.rig_control_bone(*args)
 
-    def rig_control_bone(self, ctrl, prev_ctrl):
+    def rig_control_bone(self, i, ctrl, prev_ctrl):
         if prev_ctrl:
             self.make_constraint(
                 ctrl, 'COPY_ROTATION', prev_ctrl,

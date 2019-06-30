@@ -29,7 +29,7 @@ class Rig(SimpleChainRig):
     # Initialization
 
     def initialize(self):
-        super(Rig,self).initialize()
+        super().initialize()
 
         org_chain = self.bones.org
         org_bones = [self.get_bone(org) for org in org_chain]

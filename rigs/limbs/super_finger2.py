@@ -1,3 +1,23 @@
+#====================== BEGIN GPL LICENSE BLOCK ======================
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software Foundation,
+#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+#
+#======================= END GPL LICENSE BLOCK ========================
+
+# <pep8 compliant>
+
 import bpy
 import re
 
@@ -17,7 +37,7 @@ from rigify.rigs.chain_rigs import SimpleChainRig
 class Rig(SimpleChainRig):
     """A finger rig with master control."""
     def initialize(self):
-        super(Rig,self).initialize()
+        super().initialize()
 
         self.bbone_segments = 8
         self.first_parent = self.get_bone_parent(self.bones.org[0])
@@ -70,10 +90,10 @@ class Rig(SimpleChainRig):
     @stage.generate_bones
     def make_control_chain(self):
         orgs = self.bones.org
-        self.bones.ctrl.fk = map_list(self.make_control_bone, orgs)
+        self.bones.ctrl.fk = map_list(self.make_control_bone, count(0), orgs)
         self.bones.ctrl.fk += [self.make_tip_control_bone(orgs[-1], orgs[0])]
 
-    def make_control_bone(self, org):
+    def make_control_bone(self, i, org):
         return self.copy_bone(org, make_derived_name(org, 'ctrl'), parent=False)
 
     def make_tip_control_bone(self, org, name_org):
@@ -92,10 +112,10 @@ class Rig(SimpleChainRig):
 
     @stage.configure_bones
     def configure_control_chain(self):
-        for args in zip(self.bones.org + [None], self.bones.ctrl.fk):
+        for args in zip(count(0), self.bones.ctrl.fk, self.bones.org + [None]):
             self.configure_control_bone(*args)
 
-    def configure_control_bone(self, org, ctrl):
+    def configure_control_bone(self, i, ctrl, org):
         if org:
             self.copy_bone_properties(org, ctrl)
         else:
@@ -203,7 +223,7 @@ class Rig(SimpleChainRig):
 
     @stage.rig_bones
     def rig_org_chain(self):
-        for args in zip(self.bones.org, self.bones.mch.stretch):
+        for args in zip(count(0), self.bones.org, self.bones.mch.stretch):
             self.rig_org_bone(*args)
 
     ##############################
@@ -219,7 +239,7 @@ class Rig(SimpleChainRig):
         panel = self.script.panel_with_selected_check(self, self.bones.ctrl.flatten())
         panel.custom_prop(master, 'finger_curve', text="Curvature", slider=True)
 
-    def rig_deform_bone(self, org, deform):
+    def rig_deform_bone(self, i, deform, org):
         master = self.bones.ctrl.master
         bone = self.get_bone(deform)
 

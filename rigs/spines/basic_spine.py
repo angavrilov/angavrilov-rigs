@@ -43,15 +43,13 @@ class Rig(TweakChainRig):
 
     def initialize(self):
         if len(self.bones.org) < 3:
-            raise MetarigError("RIGIFY ERROR: Bone '%s': input to rig type must be a chain of 3 or more bones" % (strip_org(self.base_bone)))
+            self.raise_error("Input to rig type must be a chain of 3 or more bones.")
 
         # Check if user provided the pivot position
         self.pivot_pos = self.params.pivot_pos
 
         if not (0 < self.pivot_pos < len(self.bones.org)):
-            raise MetarigError(
-                "RIGIFY ERROR: please specify a valid pivot bone position"
-            )
+            self.raise_error("Please specify a valid pivot bone position.")
 
         self.length = sum([self.get_bone(b).length for b in self.bones.org])
 
@@ -207,7 +205,7 @@ class Rig(TweakChainRig):
 
     @stage.configure_bones
     def configure_tweak_chain(self):
-        super(Rig,self).configure_tweak_chain()
+        super().configure_tweak_chain()
 
         ControlLayersOption.TWEAK.assign(self.params, self.obj, self.bones.ctrl.tweak)
 
@@ -332,3 +330,5 @@ def create_sample(obj):
         bone.select_head = True
         bone.select_tail = True
         arm.edit_bones.active = bone
+
+    return bones
