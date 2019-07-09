@@ -55,6 +55,12 @@ class Rig(TweakChainRig):
 
         ControlLayersOption.TWEAK.assign(self.params, self.obj, self.bones.ctrl.tweak)
 
+    def configure_tweak_bone(self, i, tweak):
+        super().configure_tweak_bone(i, tweak)
+
+        # Backward compatibility
+        self.get_bone(tweak).rotation_mode = 'QUATERNION'
+
     # Rig
     @stage.rig_bones
     def rig_control_chain(self):
