@@ -26,6 +26,8 @@ from rigify.utils.bones import BoneDict, compute_chain_x_axis, align_bone_x_axis
 from rigify.utils.naming import make_derived_name
 from rigify.utils.misc import map_list
 
+from rigify.rigs.widgets import create_hand_widget
+
 from rigify.base_rig import stage
 
 from .limb_rigs import BaseLimbRig
@@ -56,6 +58,17 @@ class Rig(BaseLimbRig):
             axis = self.vector_without_z(self.get_bone(orgs[2]).z_axis)
 
             align_bone_z_axis(self.obj, orgs[2], axis)
+
+    ####################################################
+    # Overrides
+
+    def build_ik_parent_switch(self, pbuilder):
+        super().build_ik_parent_switch(pbuilder)
+
+        pbuilder.register_parent(self, self.bones.org.main[2], exclude_self=True)
+
+    def make_ik_ctrl_widget(self, ctrl):
+        create_hand_widget(self.obj, ctrl, bone_transform_name=None)
 
     ####################################################
     # Settings

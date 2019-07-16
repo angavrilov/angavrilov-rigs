@@ -54,6 +54,29 @@ class Rig(TweakChainRig):
         self.length = sum([self.get_bone(b).length for b in self.bones.org])
 
     ####################################################
+    # BONES
+    #
+    # org[]:
+    #   ORG bones
+    # ctrl:
+    #   master, hips, chest:
+    #     Main controls.
+    #   tweak[]:
+    #     Tweak control chain.
+    # mch:
+    #   pivot:
+    #     Pivot tweak parent.
+    #   chain:
+    #     chest[], hips[]:
+    #       Tweak parents, distributing master deform.
+    #   wgt_hips, wgt_chest:
+    #     Widget position bones.
+    # deform[]:
+    #   DEF bones
+    #
+    ####################################################
+
+    ####################################################
     # Main control bones
 
     @stage.generate_bones

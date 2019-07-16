@@ -46,6 +46,30 @@ class Rig(BaseHeadTailRig):
         self.long_neck = len(self.bones.org) > 3
 
     ####################################################
+    # BONES
+    #
+    # org[]:
+    #   ORG bones
+    # ctrl:
+    #   neck, head, neck_bend:
+    #     Main controls.
+    #   tweak[]:
+    #     Tweak control chain.
+    # mch:
+    #   rot_neck, rot_head:
+    #     Main control parents, implement FK follow.
+    #   stretch
+    #     Long neck stretch behavior.
+    #   ik[]
+    #     Long neck IK behavior.
+    #   chain[]
+    #     Tweak parents.
+    # deform[]:
+    #   DEF bones
+    #
+    ####################################################
+
+    ####################################################
     # Main control bones
 
     @stage.generate_bones
