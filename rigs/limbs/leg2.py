@@ -105,11 +105,11 @@ class Rig(BaseLimbRig):
     ####################################################
     # IK controls
 
-    def get_all_ik_controls(self):
-        return super().get_all_ik_controls() + [self.bones.ctrl.heel]
+    def get_extra_ik_controls(self):
+        return [self.bones.ctrl.heel]
 
     def make_ik_control_bone(self, orgs):
-        name = super().make_ik_control_bone(orgs)
+        name = self.copy_bone(orgs[2], make_derived_name(orgs[2], 'ctrl', '_ik'))
 
         if self.params.rotation_axis == 'automatic' or self.params.auto_align_extremity:
             align_bone_to_axis(self.obj, name, 'y', flip=True)

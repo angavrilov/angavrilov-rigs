@@ -265,12 +265,12 @@ class BaseLimbRig(BaseRig):
         for args in zip(count(0), self.bones.ctrl.fk, self.bones.org.main):
             self.configure_fk_control_bone(*args)
 
-        ControlLayersOption.FK.assign(self.params, self.obj, self.bones.ctrl.fk)
+        ControlLayersOption.FK.assign(self.params, self.obj, self.bones.ctrl.fk[0:3])
 
     def configure_fk_control_bone(self, i, ctrl, org):
         self.copy_bone_properties(org, ctrl)
 
-        if 2 <= i <= self.segmented_orgs:
+        if i == 2:
             self.get_bone(ctrl).lock_location = True, True, True
 
     @stage.generate_widgets
@@ -281,8 +281,10 @@ class BaseLimbRig(BaseRig):
     def make_fk_control_widget(self, i, ctrl):
         if i < 2:
             create_limb_widget(self.obj, ctrl)
-        else:
+        elif i == 2:
             create_circle_widget(self.obj, ctrl, radius=0.4, head_tail=0.0)
+        else:
+            create_circle_widget(self.obj, ctrl, radius=0.4, head_tail=0.5)
 
 
     ####################################################
@@ -320,9 +322,12 @@ class BaseLimbRig(BaseRig):
     ####################################################
     # IK controls
 
+    def get_extra_ik_controls(self):
+        return []
+
     def get_all_ik_controls(self):
         ctrl = self.bones.ctrl
-        return [ctrl.ik_base, ctrl.ik_pole, ctrl.ik]
+        return [ctrl.ik_base, ctrl.ik_pole, ctrl.ik] + self.get_extra_ik_controls()
 
     @stage.generate_bones
     def make_ik_controls(self):
@@ -545,7 +550,9 @@ class BaseLimbRig(BaseRig):
 
     @stage.parent_bones
     def parent_org_chain(self):
-        pass
+        orgs = self.bones.org.main
+        if len(orgs) > 3:
+            self.get_bone(orgs[3]).use_connect = False
 
     @stage.rig_bones
     def rig_org_chain(self):
@@ -699,6 +706,11 @@ class BaseLimbRig(BaseRig):
             elif next_entry:
                 self.make_constraint(deform, 'DAMPED_TRACK', next_entry.org)
                 self.make_constraint(deform, 'STRETCH_TO', next_entry.org)
+
+            else:
+                self.make_constraint(deform, 'DAMPED_TRACK', entry.org, head_tail=1.0)
+                self.make_constraint(deform, 'STRETCH_TO', entry.org, head_tail=1.0)
+
         else:
             self.make_constraint(deform, 'COPY_TRANSFORMS', entry.org)
 

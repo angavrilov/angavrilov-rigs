@@ -26,23 +26,18 @@ from .limb_rigs import BaseLimbRig
 
 from . import arm2 as arm
 from . import leg2 as leg
+from . import paw2 as paw
+
+
+RIGS = { 'arm': arm.Rig, 'leg': leg.Rig, 'paw': paw.Rig }
 
 
 class Rig(SubstitutionRig):
     def substitute(self):
-        if self.params.limb_type == 'arm':
-            return [ self.instantiate_rig(arm.Rig, self.base_bone) ]
-        elif self.params.limb_type == 'leg':
-            return [ self.instantiate_rig(leg.Rig, self.base_bone) ]
-        elif self.params.limb_type == 'paw':
-            return [ self.instantiate_rig('limbs.paw', self.base_bone) ]
+        return [ self.instantiate_rig(RIGS[self.params.limb_type], self.base_bone) ]
 
 
 def add_parameters(params):
-    """ Add the parameters of this rig type to the
-        RigifyParameters PropertyGroup
-    """
-
     items = [
         ('arm', 'Arm', ''),
         ('leg', 'Leg', ''),
@@ -59,13 +54,10 @@ def add_parameters(params):
 
 
 def parameters_ui(layout, params):
-    """ Create the ui for the rig parameters."""
-
     r = layout.row()
     r.prop(params, "limb_type")
 
-    extremities = {'arm': 'Hand', 'leg': 'Foot', 'paw': 'Claw'}
-    BaseLimbRig.parameters_ui(layout, params, extremities[params.limb_type])
+    RIGS[params.limb_type].parameters_ui(layout, params)
 
 
 def create_sample(obj):
