@@ -22,7 +22,8 @@ import bpy
 
 from rigify.utils.animation import add_generic_snap_fk_to_ik
 from rigify.utils.rig import connected_children_names
-from rigify.utils.bones import BoneDict, put_bone, compute_chain_x_axis, align_bone_x_axis, align_bone_orientation
+from rigify.utils.bones import BoneDict, put_bone, compute_chain_x_axis, align_bone_orientation
+from rigify.utils.bones import align_bone_x_axis, align_bone_y_axis, align_bone_z_axis
 from rigify.utils.naming import strip_org, make_derived_name
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.misc import pairwise_nozip, padnone, map_list
@@ -61,6 +62,15 @@ class BaseLimbRig(BaseRig):
         self.segments = self.params.segments
         self.bbone_segments = self.params.bbones
 
+        rot_axis = self.params.rotation_axis
+
+        if rot_axis in {'x', 'automatic'}:
+            self.main_axis, self.aux_axis = 'x', 'z'
+        elif rot_axis == 'z':
+            self.main_axis, self.aux_axis = 'z', 'x'
+        else:
+            self.raise_error('Unexpected axis value: {}', rot_axis)
+
         self.segment_table = [
             SegmentEntry(org, i, j, self.get_segment_pos(org, j))
             for i, org in enumerate(orgs[:self.segmented_orgs])
@@ -90,22 +100,19 @@ class BaseLimbRig(BaseRig):
         tot_vector = bones[1].tail - bones[0].head
         return (lo_vector.project(tot_vector) - lo_vector).normalized() * tot_vector.length
 
-    def compute_pole_angle(self, bones, elbow_vector):
-        rot_axis = self.params.rotation_axis
+    def get_main_axis(self, bone):
+        return getattr(bone, self.main_axis + '_axis')
 
-        if rot_axis == 'z':
+    def get_aux_axis(self, bone):
+        return getattr(bone, self.aux_axis + '_axis')
+
+    def compute_pole_angle(self, bones, elbow_vector):
+        if self.params.rotation_axis == 'z':
             return 0
 
-        if rot_axis == 'x' or rot_axis == 'automatic':
-            z_vector = bones[0].z_axis + bones[1].z_axis
-            alfa = elbow_vector.angle(z_vector)
-        elif rot_axis == 'z':
-            x_vector = bones[0].x_axis + bones[1].x_axis
-            alfa = elbow_vector.angle(x_vector)
-        else:
-            self.raise_error('Unexpected axis value: {}', rot_axis)
+        vector = self.get_aux_axis(bones[0]) + self.get_aux_axis(bones[1])
 
-        if alfa > pi/2:
+        if elbow_vector.angle(vector) > pi/2:
             return -pi/2
         else:
             return pi/2
@@ -113,6 +120,15 @@ class BaseLimbRig(BaseRig):
     def get_segment_pos(self, org, seg):
         bone = self.get_bone(org)
         return bone.head + bone.vector * (seg / self.segments)
+
+    def align_roll_bone(self, org, name, y_axis):
+        if y_axis:
+            align_bone_y_axis(self.obj, name, y_axis)
+
+        if self.main_axis == 'x':
+            align_bone_x_axis(self.obj, name, self.get_bone(org).x_axis)
+        else:
+            align_bone_z_axis(self.obj, name, self.get_bone(org).z_axis)
 
     @staticmethod
     def vector_without_z(vector):
@@ -283,10 +299,11 @@ class BaseLimbRig(BaseRig):
     @stage.parent_bones
     def parent_fk_parent_chain(self):
         mch = self.bones.mch
-        for args in zip(count(0), mch.fk, [mch.follow]+self.bones.ctrl.fk, self.bones.org.main):
+        orgs = self.bones.org.main
+        for args in zip(count(0), mch.fk, [mch.follow]+self.bones.ctrl.fk, orgs, [None]+orgs):
             self.parent_fk_parent_bone(*args)
 
-    def parent_fk_parent_bone(self, i, parent_mch, prev_ctrl, org):
+    def parent_fk_parent_bone(self, i, parent_mch, prev_ctrl, org, prev_org):
         if i == 2:
             self.set_bone_parent(parent_mch, prev_ctrl, use_connect=True)
 
@@ -302,6 +319,10 @@ class BaseLimbRig(BaseRig):
 
     ####################################################
     # IK controls
+
+    def get_all_ik_controls(self):
+        ctrl = self.bones.ctrl
+        return [ctrl.ik_base, ctrl.ik_pole, ctrl.ik]
 
     @stage.generate_bones
     def make_ik_controls(self):
@@ -330,7 +351,8 @@ class BaseLimbRig(BaseRig):
         ctrl = self.bones.ctrl
 
         prop_bone = lambda: ctrl.master
-        pcontrols = lambda: [ ctrl.master, ctrl.ik_base, ctrl.ik_pole, ctrl.ik ]
+        pcontrols = lambda: [ ctrl.master ] + self.get_all_ik_controls()
+        pole_parents = lambda: [(self.bones.mch.ik_target, ctrl.ik)]
 
         if self.rig_parent_bone:
             pbuilder.register_parent(self, self.rig_parent_bone)
@@ -342,7 +364,7 @@ class BaseLimbRig(BaseRig):
         )
 
         pbuilder.build_child(
-            self, ctrl.ik_pole, extra_parents=[ctrl.ik],
+            self, ctrl.ik_pole, extra_parents=pole_parents,
             prop_bone=prop_bone, prop_id='pole_parent', prop_name='Pole Parent',
             controls=pcontrols, no_fix_rotation=True, no_fix_scale=True,
         )
@@ -365,7 +387,7 @@ class BaseLimbRig(BaseRig):
         self.make_ik_ctrl_widget(self.bones.ctrl.ik)
 
     def make_ik_base_widget(self, ctrl):
-        if self.params.rotation_axis in {'x', 'automatic'}:
+        if self.main_axis == 'x':
             roll = 0
         else:
             roll = pi/2
@@ -412,15 +434,13 @@ class BaseLimbRig(BaseRig):
     ####################################################
     # IK system MCH
 
+    ik_input_head_tail = 0.0
+
     def get_ik_input_bone(self):
         return self.bones.ctrl.ik
 
     def get_ik_output_chain(self):
         return [self.bones.ctrl.ik_base, self.bones.mch.ik_end, self.bones.mch.ik_target]
-
-    def get_all_ik_controls(self):
-        ctrl = self.bones.ctrl
-        return [ctrl.ik_base, ctrl.ik_pole, ctrl.ik]
 
     @stage.generate_bones
     def make_ik_mch_chain(self):
@@ -483,8 +503,8 @@ class BaseLimbRig(BaseRig):
         self.rig_ik_mch_end_bone(mch.ik_end, mch.ik_target, self.bones.ctrl.ik_pole)
 
     def rig_ik_mch_stretch_bone(self, mch_stretch, input_bone):
-        self.make_constraint(mch_stretch, 'DAMPED_TRACK', input_bone)
-        self.make_constraint(mch_stretch, 'STRETCH_TO', input_bone)
+        self.make_constraint(mch_stretch, 'DAMPED_TRACK', input_bone, head_tail=self.ik_input_head_tail)
+        self.make_constraint(mch_stretch, 'STRETCH_TO', input_bone, head_tail=self.ik_input_head_tail)
 
         con = self.make_constraint(mch_stretch, 'LIMIT_SCALE', min_y=0.0, max_y=1.05, owner_space='LOCAL')
 
@@ -497,12 +517,8 @@ class BaseLimbRig(BaseRig):
         bone = self.get_bone(mch_ik)
         bone.ik_stretch = 0.1
 
-        if self.params.rotation_axis == 'z':
-            bone.lock_ik_x = True
-            bone.lock_ik_y = True
-        else:
-            bone.lock_ik_y = True
-            bone.lock_ik_z = True
+        bone.lock_ik_x = bone.lock_ik_y = bone.lock_ik_z = True
+        setattr(bone, 'lock_ik_' + self.main_axis, False)
 
         con = self.make_constraint(
             mch_ik, 'IK', mch_target, chain_count=2,
