@@ -19,8 +19,9 @@
 # <pep8 compliant>
 
 import bpy
+import json
 
-from rigify.utils.animation import add_generic_snap_fk_to_ik
+from rigify.utils.animation import add_generic_snap_fk_to_ik, add_fk_ik_snap_buttons
 from rigify.utils.rig import connected_children_names
 from rigify.utils.bones import BoneDict, put_bone, compute_chain_x_axis, align_bone_orientation
 from rigify.utils.bones import align_bone_x_axis, align_bone_y_axis, align_bone_z_axis
@@ -33,6 +34,8 @@ from rigify.base_rig import stage, BaseRig
 
 from rigify.utils.widgets_basic import create_circle_widget, create_sphere_widget, create_line_widget, create_limb_widget
 from rigify.rigs.widgets import create_gear_widget, create_ikarrow_widget
+
+from rigify.rig_ui_template import UTILITIES_FUNC_COMMON_IKFK
 
 from math import pi
 from itertools import count, repeat, chain
@@ -489,12 +492,22 @@ class BaseLimbRig(BaseRig):
         panel.custom_prop(self.prop_bone, 'pole_vector', text='Pole Vector')
 
     def add_ik_snap_buttons(self, panel, rig_name):
+        ctrl = self.bones.ctrl
         ik_chain = self.get_ik_output_chain()
+
         add_generic_snap_fk_to_ik(
             panel,
             fk_bones=self.bones.ctrl.fk[0:len(ik_chain)],
             ik_bones=ik_chain,
             ik_ctrl_bones=self.get_all_ik_controls(),
+            rig_name=rig_name
+        )
+        add_limb_snap_ik_to_fk(
+            panel,
+            master=ctrl.master,
+            fk_bones=self.bones.ctrl.fk, ik_bones=ik_chain,
+            ik_ctrl_bones=[ctrl.ik_base, ctrl.ik_pole, ctrl.ik],
+            ik_extra_ctrls=self.get_extra_ik_controls(),
             rig_name=rig_name
         )
 
@@ -792,3 +805,134 @@ class BaseLimbRig(BaseRig):
 
         ControlLayersOption.FK.parameters_ui(layout, params)
         ControlLayersOption.TWEAK.parameters_ui(layout, params)
+
+
+###########################
+# Limb IK to FK operator ##
+###########################
+
+SCRIPT_REGISTER_OP_SNAP_IK_FK = ['POSE_OT_rigify_limb_ik2fk', 'POSE_OT_rigify_limb_ik2fk_bake']
+
+SCRIPT_UTILITIES_OP_SNAP_IK_FK = UTILITIES_FUNC_COMMON_IKFK + ['''
+########################
+## Limb Snap IK to FK ##
+########################
+
+class RigifyLimbIk2FkBase:
+    master:       StringProperty(name="Settings Bone")
+    fk_bones:     StringProperty(name="FK Bone Chain")
+    ik_bones:     StringProperty(name="IK Result Bone Chain")
+    ctrl_bones:   StringProperty(name="IK Controls")
+    extra_ctrls:  StringProperty(name="Extra IK Controls")
+
+    keyflags = None
+
+    def unpack_lists(self):
+        self.fk_bone_list = json.loads(self.fk_bones)
+        self.ik_bone_list = json.loads(self.ik_bones)
+        self.ctrl_bone_list = json.loads(self.ctrl_bones)
+        self.extra_ctrl_list = json.loads(self.extra_ctrls)
+
+    def save_frame_state(self, context, obj):
+        return get_chain_transform_matrices(obj, self.fk_bone_list)
+
+    def apply_frame_state(self, context, obj, matrices):
+        master_bone =  obj.pose.bones[self.master]
+        ik_bones = [ obj.pose.bones[k] for k in self.ik_bone_list ]
+        ctrl_bones = [ obj.pose.bones[k] for k in self.ctrl_bone_list ]
+
+        use_pole = 'pole_vector' in master_bone and master_bone['pole_vector']
+
+        # Set the end control position
+        tgt_matrix = ik_bones[2].bone.matrix_local
+        ctrl_matrix = ctrl_bones[2].bone.matrix_local
+        endmat = matrices[2] @ tgt_matrix.inverted() @ ctrl_matrix
+
+        set_transform_from_matrix(
+            obj, self.ctrl_bone_list[2], endmat, keyflags=self.keyflags
+        )
+
+        # Remove foot heel transfrom, if present
+        for extra in self.extra_ctrl_list:
+            set_transform_from_matrix(
+                obj, extra, Matrix.Identity(4), space='LOCAL', keyflags=self.keyflags
+            )
+
+        # Set the base bone position
+        ctrl_bones[0].matrix_basis = Matrix.Identity(4)
+
+        set_transform_from_matrix(
+            obj, self.ctrl_bone_list[0], matrices[0],
+            no_scale=True, no_rot=use_pole,
+        )
+
+        context.view_layer.update()
+
+        # Set the base bone rotation and scale
+        if use_pole:
+            match_pole_target(
+                context.view_layer,
+                ik_bones[0], ik_bones[1], ctrl_bones[1], matrices[0],
+                (ik_bones[0].length + ik_bones[1].length)
+            )
+
+        else:
+            correct_rotation(context.view_layer, ctrl_bones[0], matrices[0])
+
+        correct_scale(context.view_layer, ctrl_bones[0], matrices[0])
+
+        # Keyframe controls
+        if self.keyflags is not None:
+            if use_pole:
+                keyframe_transform_properties(
+                    obj, self.ctrl_bone_list[1], self.keyflags,
+                    no_rot=True, no_scale=True,
+                )
+
+            keyframe_transform_properties(
+                obj, self.ctrl_bone_list[0], self.keyflags,
+                no_rot=use_pole,
+            )
+
+class POSE_OT_rigify_limb_ik2fk(RigifyLimbIk2FkBase, bpy.types.Operator):
+    bl_idname = "pose.rigify_limb_ik2fk_" + rig_id
+    bl_label = "Snap IK->FK"
+    bl_options = {'UNDO', 'INTERNAL'}
+    bl_description = "Snap the IK chain to FK result"
+
+    def execute(self, context):
+        self.unpack_lists()
+        obj = context.active_object
+        self.keyflags = get_autokey_flags(context, ignore_keyset=True)
+        self.apply_frame_state(context, obj, self.save_frame_state(context, obj))
+        return {'FINISHED'}
+
+class POSE_OT_rigify_limb_ik2fk_bake(RigifyLimbIk2FkBase, RigifyBakeKeyframesMixin, bpy.types.Operator):
+    bl_idname = "pose.rigify_limb_ik2fk_bake_" + rig_id
+    bl_label = "Apply Snap IK->FK To Keyframes"
+    bl_options = {'UNDO', 'INTERNAL'}
+    bl_description = "Snap the IK chain keyframes to FK result"
+
+    def execute_scan_curves(self, context, obj):
+        self.unpack_lists()
+        self.bake_add_bone_frames(self.fk_bone_list, TRANSFORM_PROPS_ALL)
+        return self.bake_get_all_bone_curves(self.ctrl_bone_list + self.extra_ctrl_list, TRANSFORM_PROPS_ALL)
+''']
+
+def add_limb_snap_ik_to_fk(panel, *, master=None, fk_bones=[], ik_bones=[], ik_ctrl_bones=[], ik_extra_ctrls=[], rig_name=''):
+    panel.use_bake_settings()
+    panel.script.add_utilities(SCRIPT_UTILITIES_OP_SNAP_IK_FK)
+    panel.script.register_classes(SCRIPT_REGISTER_OP_SNAP_IK_FK)
+
+    op_props = {
+        'master': master,
+        'fk_bones': json.dumps(fk_bones),
+        'ik_bones': json.dumps(ik_bones),
+        'ctrl_bones': json.dumps(ik_ctrl_bones),
+        'extra_ctrls': json.dumps(ik_extra_ctrls),
+    }
+
+    add_fk_ik_snap_buttons(
+        panel, 'pose.rigify_limb_ik2fk_{rig_id}', 'pose.rigify_limb_ik2fk_bake_{rig_id}',
+        label='IK->FK', rig_name=rig_name, properties=op_props, clear_bones=fk_bones
+    )
