@@ -28,7 +28,49 @@ from rigify.utils.bones import align_bone_orientation
 
 from rigify.base_rig import stage
 
-from rigify.rigs.chain_rigs import ConnectingChainRig
+from rigify.rigs.chain_rigs import TweakChainRig, ConnectingChainRig
+
+
+class BaseSpineRig(TweakChainRig):
+    """
+    Spine rig with tweaks.
+    """
+
+    bbone_segments = 8
+
+    def initialize(self):
+        if len(self.bones.org) < 3:
+            self.raise_error("Input to rig type must be a chain of 3 or more bones.")
+
+        self.length = sum([self.get_bone(b).length for b in self.bones.org])
+
+    ####################################################
+    # Tweak bones
+
+    @stage.configure_bones
+    def configure_tweak_chain(self):
+        super().configure_tweak_chain()
+
+        ControlLayersOption.TWEAK.assign(self.params, self.obj, self.bones.ctrl.tweak)
+
+    ####################################################
+    # Deform bones
+
+    @stage.configure_bones
+    def configure_bbone_chain(self):
+        self.get_bone(self.bones.deform[0]).bone.bbone_easein = 0.0
+
+    ####################################################
+    # SETTINGS
+
+    @classmethod
+    def add_parameters(self, params):
+        # Setting up extra layers for the FK and tweak
+        ControlLayersOption.TWEAK.add_parameters(params)
+
+    @classmethod
+    def parameters_ui(self, layout, params):
+        ControlLayersOption.TWEAK.parameters_ui(layout, params)
 
 
 class BaseHeadTailRig(ConnectingChainRig):
@@ -116,10 +158,6 @@ class BaseHeadTailRig(ConnectingChainRig):
 
     @classmethod
     def add_parameters(self, params):
-        """ Add the parameters of this rig type to the
-            RigifyParameters PropertyGroup
-        """
-
         super().add_parameters(params)
 
         # Setting up extra layers for the FK and tweak
@@ -127,8 +165,6 @@ class BaseHeadTailRig(ConnectingChainRig):
 
     @classmethod
     def parameters_ui(self, layout, params):
-        """ Create the ui for the rig parameters."""
-
         super().parameters_ui(layout, params)
 
         ControlLayersOption.TWEAK.parameters_ui(layout, params)

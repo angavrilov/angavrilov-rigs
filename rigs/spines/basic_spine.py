@@ -22,8 +22,6 @@ import bpy
 
 from itertools import count, repeat
 
-from rigify.rigs.chain_rigs import TweakChainRig
-
 from rigify.utils.errors import MetarigError
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.naming import strip_org, make_deformer_name, make_mechanism_name
@@ -32,26 +30,22 @@ from rigify.utils.widgets_basic import create_circle_widget, create_cube_widget
 from rigify.utils.misc import map_list
 
 from rigify.base_rig import stage
+from .spine_rigs import BaseSpineRig
 
 
-class Rig(TweakChainRig):
+class Rig(BaseSpineRig):
     """
     Spine rig with fixed pivot, hip/chest controls and tweaks.
     """
 
-    bbone_segments = 8
-
     def initialize(self):
-        if len(self.bones.org) < 3:
-            self.raise_error("Input to rig type must be a chain of 3 or more bones.")
+        super().initialize()
 
         # Check if user provided the pivot position
         self.pivot_pos = self.params.pivot_pos
 
         if not (0 < self.pivot_pos < len(self.bones.org)):
             self.raise_error("Please specify a valid pivot bone position.")
-
-        self.length = sum([self.get_bone(b).length for b in self.bones.org])
 
     ####################################################
     # BONES
@@ -226,28 +220,11 @@ class Rig(TweakChainRig):
         for args in zip(self.bones.ctrl.tweak, parents):
             self.set_bone_parent(*args)
 
-    @stage.configure_bones
-    def configure_tweak_chain(self):
-        super().configure_tweak_chain()
-
-        ControlLayersOption.TWEAK.assign(self.params, self.obj, self.bones.ctrl.tweak)
-
-    ####################################################
-    # Deform bones
-
-    @stage.configure_bones
-    def configure_bbone_chain(self):
-        self.get_bone(self.bones.deform[0]).bone.bbone_easein = 0.0
-
     ####################################################
     # SETTINGS
 
     @classmethod
     def add_parameters(self, params):
-        """ Add the parameters of this rig type to the
-            RigifyParameters PropertyGroup
-        """
-
         params.pivot_pos = bpy.props.IntProperty(
             name='pivot_position',
             default=2,
@@ -255,17 +232,14 @@ class Rig(TweakChainRig):
             description='Position of the torso control and pivot point'
         )
 
-        # Setting up extra layers for the FK and tweak
-        ControlLayersOption.TWEAK.add_parameters(params)
+        super().add_parameters(params)
 
     @classmethod
     def parameters_ui(self, layout, params):
-        """ Create the ui for the rig parameters."""
-
         r = layout.row()
         r.prop(params, "pivot_pos")
 
-        ControlLayersOption.TWEAK.parameters_ui(layout, params)
+        super().parameters_ui(layout, params)
 
 
 def create_sample(obj):

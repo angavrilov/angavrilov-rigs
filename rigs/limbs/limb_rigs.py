@@ -946,7 +946,8 @@ def add_limb_snap_ik_to_fk(panel, *, master=None, fk_bones=[], ik_bones=[], ik_c
 
     add_fk_ik_snap_buttons(
         panel, 'pose.rigify_limb_ik2fk_{rig_id}', 'pose.rigify_limb_ik2fk_bake_{rig_id}',
-        label='IK->FK', rig_name=rig_name, properties=op_props, clear_bones=fk_bones
+        label='IK->FK', rig_name=rig_name, properties=op_props,
+        clear_bones=ik_ctrl_bones + ik_extra_ctrls,
     )
 
 #########################
@@ -1022,7 +1023,7 @@ class POSE_OT_rigify_limb_toggle_pole_bake(RigifyLimbTogglePoleBase, RigifyBakeK
         return rot_curves + pole_curves
 
     def execute_before_apply(self, context, obj, range, range_raw):
-        self.bake_replace_custom_prop_keys_constant(self.prop_bone, self.pole_prop, range_raw, int(self.use_pole))
+        self.bake_replace_custom_prop_keys_constant(self.prop_bone, self.pole_prop, int(self.use_pole))
 
     def draw(self, context):
         self.layout.prop(self, 'use_pole')
