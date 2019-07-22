@@ -406,7 +406,7 @@ class BaseLimbRig(BaseRig):
         create_sphere_widget(self.obj, ctrl, bone_transform_name=None)
 
     def make_ik_ctrl_widget(self, ctrl):
-        self.raise_error('NOT IMPLEMENTED')
+        raise NotImplementedError()
 
 
     ####################################################
@@ -476,12 +476,12 @@ class BaseLimbRig(BaseRig):
         ctrl = self.bones.ctrl
         panel = self.script.panel_with_selected_check(self, ctrl.flatten())
 
-        name = strip_org(self.bones.org.main[2])
+        rig_name = strip_org(self.bones.org.main[2])
 
         self.make_property(self.prop_bone, 'IK_FK', default=0.0, description='IK/FK Switch')
-        panel.custom_prop(self.prop_bone, 'IK_FK', text='IK-FK ({})'.format(name), slider=True)
+        panel.custom_prop(self.prop_bone, 'IK_FK', text='IK-FK ({})'.format(rig_name), slider=True)
 
-        self.add_ik_snap_buttons(panel, name)
+        self.add_ik_snap_buttons(panel, rig_name)
 
         panel = self.script.panel_with_selected_check(self, [ctrl.master, *self.get_all_ik_controls()])
 
@@ -489,7 +489,8 @@ class BaseLimbRig(BaseRig):
         panel.custom_prop(self.prop_bone, 'IK_Stretch', text='IK Stretch', slider=True)
 
         self.make_property(self.prop_bone, 'pole_vector', default=False, description='Pole Vector')
-        panel.custom_prop(self.prop_bone, 'pole_vector', text='Pole Vector')
+
+        self.add_ik_pole_toggle_buttons(panel, rig_name)
 
     def add_ik_snap_buttons(self, panel, rig_name):
         ctrl = self.bones.ctrl
@@ -502,13 +503,25 @@ class BaseLimbRig(BaseRig):
             ik_ctrl_bones=self.get_all_ik_controls(),
             rig_name=rig_name
         )
+
         add_limb_snap_ik_to_fk(
             panel,
             master=ctrl.master,
             fk_bones=self.bones.ctrl.fk, ik_bones=ik_chain,
-            ik_ctrl_bones=[ctrl.ik_base, ctrl.ik_pole, ctrl.ik],
+            ik_ctrl_bones=[ctrl.ik_base, ctrl.ik, ctrl.ik_pole],
             ik_extra_ctrls=self.get_extra_ik_controls(),
             rig_name=rig_name
+        )
+
+    def add_ik_pole_toggle_buttons(self, panel, rig_name):
+        ctrl = self.bones.ctrl
+        ik_chain = self.get_ik_output_chain()
+
+        add_limb_toggle_pole(
+            panel, master=ctrl.master,
+            ik_bones=ik_chain,
+            ik_ctrl_bones=[ctrl.ik_base, ctrl.ik, ctrl.ik_pole],
+            ik_extra_ctrls=self.get_extra_ik_controls(),
         )
 
     @stage.rig_bones
@@ -819,7 +832,8 @@ SCRIPT_UTILITIES_OP_SNAP_IK_FK = UTILITIES_FUNC_COMMON_IKFK + ['''
 ########################
 
 class RigifyLimbIk2FkBase:
-    master:       StringProperty(name="Settings Bone")
+    prop_bone:    StringProperty(name="Settings Bone")
+    pole_prop:    StringProperty(name="Pole target switch", default="pole_vector")
     fk_bones:     StringProperty(name="FK Bone Chain")
     ik_bones:     StringProperty(name="IK Result Bone Chain")
     ctrl_bones:   StringProperty(name="IK Controls")
@@ -827,32 +841,49 @@ class RigifyLimbIk2FkBase:
 
     keyflags = None
 
-    def unpack_lists(self):
-        self.fk_bone_list = json.loads(self.fk_bones)
+    def init_invoke(self, context):
+        if self.fk_bones:
+            self.fk_bone_list = json.loads(self.fk_bones)
         self.ik_bone_list = json.loads(self.ik_bones)
         self.ctrl_bone_list = json.loads(self.ctrl_bones)
         self.extra_ctrl_list = json.loads(self.extra_ctrls)
 
+    def get_use_pole(self, obj):
+        bone = obj.pose.bones[self.prop_bone]
+        return self.pole_prop in bone and bone[self.pole_prop]
+
     def save_frame_state(self, context, obj):
         return get_chain_transform_matrices(obj, self.fk_bone_list)
 
+    def compute_base_rotation(self, context, ik_bones, ctrl_bones, matrices, use_pole):
+        context.view_layer.update()
+
+        if use_pole:
+            match_pole_target(
+                context.view_layer,
+                ik_bones[0], ik_bones[1], ctrl_bones[2], matrices[0],
+                (ik_bones[0].length + ik_bones[1].length)
+            )
+
+        else:
+            correct_rotation(context.view_layer, ctrl_bones[0], matrices[0])
+
     def apply_frame_state(self, context, obj, matrices):
-        master_bone =  obj.pose.bones[self.master]
         ik_bones = [ obj.pose.bones[k] for k in self.ik_bone_list ]
         ctrl_bones = [ obj.pose.bones[k] for k in self.ctrl_bone_list ]
 
-        use_pole = 'pole_vector' in master_bone and master_bone['pole_vector']
+        use_pole = len(ctrl_bones) > 2 and self.get_use_pole(obj)
 
         # Set the end control position
         tgt_matrix = ik_bones[2].bone.matrix_local
-        ctrl_matrix = ctrl_bones[2].bone.matrix_local
+        ctrl_matrix = ctrl_bones[1].bone.matrix_local
         endmat = matrices[2] @ tgt_matrix.inverted() @ ctrl_matrix
 
         set_transform_from_matrix(
-            obj, self.ctrl_bone_list[2], endmat, keyflags=self.keyflags
+            obj, self.ctrl_bone_list[1], endmat, keyflags=self.keyflags
         )
 
-        # Remove foot heel transfrom, if present
+        # Remove foot heel transform, if present
         for extra in self.extra_ctrl_list:
             set_transform_from_matrix(
                 obj, extra, Matrix.Identity(4), space='LOCAL', keyflags=self.keyflags
@@ -866,18 +897,7 @@ class RigifyLimbIk2FkBase:
             no_scale=True, no_rot=use_pole,
         )
 
-        context.view_layer.update()
-
-        # Set the base bone rotation and scale
-        if use_pole:
-            match_pole_target(
-                context.view_layer,
-                ik_bones[0], ik_bones[1], ctrl_bones[1], matrices[0],
-                (ik_bones[0].length + ik_bones[1].length)
-            )
-
-        else:
-            correct_rotation(context.view_layer, ctrl_bones[0], matrices[0])
+        self.compute_base_rotation(context, ik_bones, ctrl_bones, matrices, use_pole)
 
         correct_scale(context.view_layer, ctrl_bones[0], matrices[0])
 
@@ -885,7 +905,7 @@ class RigifyLimbIk2FkBase:
         if self.keyflags is not None:
             if use_pole:
                 keyframe_transform_properties(
-                    obj, self.ctrl_bone_list[1], self.keyflags,
+                    obj, self.ctrl_bone_list[2], self.keyflags,
                     no_rot=True, no_scale=True,
                 )
 
@@ -894,18 +914,11 @@ class RigifyLimbIk2FkBase:
                 no_rot=use_pole,
             )
 
-class POSE_OT_rigify_limb_ik2fk(RigifyLimbIk2FkBase, bpy.types.Operator):
+class POSE_OT_rigify_limb_ik2fk(RigifyLimbIk2FkBase, RigifySingleUpdateMixin, bpy.types.Operator):
     bl_idname = "pose.rigify_limb_ik2fk_" + rig_id
     bl_label = "Snap IK->FK"
     bl_options = {'UNDO', 'INTERNAL'}
     bl_description = "Snap the IK chain to FK result"
-
-    def execute(self, context):
-        self.unpack_lists()
-        obj = context.active_object
-        self.keyflags = get_autokey_flags(context, ignore_keyset=True)
-        self.apply_frame_state(context, obj, self.save_frame_state(context, obj))
-        return {'FINISHED'}
 
 class POSE_OT_rigify_limb_ik2fk_bake(RigifyLimbIk2FkBase, RigifyBakeKeyframesMixin, bpy.types.Operator):
     bl_idname = "pose.rigify_limb_ik2fk_bake_" + rig_id
@@ -914,7 +927,6 @@ class POSE_OT_rigify_limb_ik2fk_bake(RigifyLimbIk2FkBase, RigifyBakeKeyframesMix
     bl_description = "Snap the IK chain keyframes to FK result"
 
     def execute_scan_curves(self, context, obj):
-        self.unpack_lists()
         self.bake_add_bone_frames(self.fk_bone_list, TRANSFORM_PROPS_ALL)
         return self.bake_get_all_bone_curves(self.ctrl_bone_list + self.extra_ctrl_list, TRANSFORM_PROPS_ALL)
 ''']
@@ -925,7 +937,7 @@ def add_limb_snap_ik_to_fk(panel, *, master=None, fk_bones=[], ik_bones=[], ik_c
     panel.script.register_classes(SCRIPT_REGISTER_OP_SNAP_IK_FK)
 
     op_props = {
-        'master': master,
+        'prop_bone': master,
         'fk_bones': json.dumps(fk_bones),
         'ik_bones': json.dumps(ik_bones),
         'ctrl_bones': json.dumps(ik_ctrl_bones),
@@ -936,3 +948,100 @@ def add_limb_snap_ik_to_fk(panel, *, master=None, fk_bones=[], ik_bones=[], ik_c
         panel, 'pose.rigify_limb_ik2fk_{rig_id}', 'pose.rigify_limb_ik2fk_bake_{rig_id}',
         label='IK->FK', rig_name=rig_name, properties=op_props, clear_bones=fk_bones
     )
+
+#########################
+# Toggle Pole operator ##
+#########################
+
+SCRIPT_REGISTER_OP_TOGGLE_POLE = ['POSE_OT_rigify_limb_toggle_pole', 'POSE_OT_rigify_limb_toggle_pole_bake']
+
+SCRIPT_UTILITIES_OP_TOGGLE_POLE = SCRIPT_UTILITIES_OP_SNAP_IK_FK + ['''
+####################
+## Toggle IK Pole ##
+####################
+
+class RigifyLimbTogglePoleBase(RigifyLimbIk2FkBase):
+    use_pole: bpy.props.BoolProperty(name="Use Pole Vector")
+
+    keyflags_switch = None
+
+    def save_frame_state(self, context, obj):
+        return get_chain_transform_matrices(obj, self.ik_bone_list)
+
+    def apply_frame_state(self, context, obj, matrices):
+        ik_bones = [ obj.pose.bones[k] for k in self.ik_bone_list ]
+        ctrl_bones = [ obj.pose.bones[k] for k in self.ctrl_bone_list ]
+
+        # Set the pole property
+        set_custom_property_value(
+            obj, self.prop_bone, self.pole_prop, int(self.use_pole),
+            keyflags=self.keyflags_switch
+        )
+
+        # Reset the base bone rotation
+        set_pose_rotation(ctrl_bones[0], Matrix.Identity(4))
+
+        self.compute_base_rotation(context, ik_bones, ctrl_bones, matrices, self.use_pole)
+
+        # Keyframe controls
+        if self.keyflags is not None:
+            if self.use_pole:
+                keyframe_transform_properties(
+                    obj, self.ctrl_bone_list[2], self.keyflags,
+                    no_rot=True, no_scale=True,
+                )
+            else:
+                keyframe_transform_properties(
+                    obj, self.ctrl_bone_list[0], self.keyflags,
+                    no_loc=True, no_scale=True,
+                )
+
+    def init_invoke(self, context):
+        super().init_invoke(context)
+
+        obj = context.active_object
+        self.use_pole = not bool(obj.pose.bones[self.prop_bone][self.pole_prop])
+
+class POSE_OT_rigify_limb_toggle_pole(RigifyLimbTogglePoleBase, RigifySingleUpdateMixin, bpy.types.Operator):
+    bl_idname = "pose.rigify_limb_toggle_pole_" + rig_id
+    bl_label = "Toggle Pole"
+    bl_options = {'UNDO', 'INTERNAL'}
+    bl_description = "Switch the IK chain between pole and rotation"
+
+class POSE_OT_rigify_limb_toggle_pole_bake(RigifyLimbTogglePoleBase, RigifyBakeKeyframesMixin, bpy.types.Operator):
+    bl_idname = "pose.rigify_limb_toggle_pole_bake_" + rig_id
+    bl_label = "Apply Toggle Pole To Keyframes"
+    bl_options = {'UNDO', 'INTERNAL'}
+    bl_description = "Switch the IK chain between pole and rotation over a frame range"
+
+    def execute_scan_curves(self, context, obj):
+        self.bake_add_bone_frames(self.ctrl_bone_list, TRANSFORM_PROPS_ALL)
+
+        rot_curves = self.bake_get_all_bone_curves(self.ctrl_bone_list[0], TRANSFORM_PROPS_ROTATION)
+        pole_curves = self.bake_get_all_bone_curves(self.ctrl_bone_list[2], TRANSFORM_PROPS_LOCATION)
+        return rot_curves + pole_curves
+
+    def execute_before_apply(self, context, obj, range, range_raw):
+        self.bake_replace_custom_prop_keys_constant(self.prop_bone, self.pole_prop, range_raw, int(self.use_pole))
+
+    def draw(self, context):
+        self.layout.prop(self, 'use_pole')
+''']
+
+def add_limb_toggle_pole(panel, *, master=None, ik_bones=[], ik_ctrl_bones=[], ik_extra_ctrls=[]):
+    panel.use_bake_settings()
+    panel.script.add_utilities(SCRIPT_UTILITIES_OP_TOGGLE_POLE)
+    panel.script.register_classes(SCRIPT_REGISTER_OP_TOGGLE_POLE)
+
+    op_props = {
+        'prop_bone': master,
+        'ik_bones': json.dumps(ik_bones),
+        'ctrl_bones': json.dumps(ik_ctrl_bones),
+        'extra_ctrls': json.dumps(ik_extra_ctrls),
+    }
+
+    row = panel.row(align=True)
+    lsplit = row.split(factor=0.75, align=True)
+    lsplit.operator('POSE_OT_rigify_limb_toggle_pole_{rig_id}', text='Toggle Pole:', icon='FORCE_MAGNETIC', properties=op_props)
+    lsplit.custom_prop(master, 'pole_vector', text='')
+    row.operator('POSE_OT_rigify_limb_toggle_pole_bake_{rig_id}', text='', icon='ACTION_TWEAK', properties=op_props)
