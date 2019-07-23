@@ -61,6 +61,11 @@ class Rig(BaseHeadTailRig):
     def parent_master_control_bone(self):
         self.set_bone_parent(self.bones.ctrl.master, self.rig_parent_bone)
 
+    @stage.configure_bones
+    def configure_master_control_bone(self):
+        bone = self.get_bone(self.bones.ctrl.master)
+        bone.lock_location = True, True, True
+
     @stage.generate_widgets
     def make_master_control_widget(self):
         bone = self.bones.ctrl.master

@@ -733,10 +733,6 @@ class BaseLimbRig(BaseRig):
                 self.make_constraint(deform, 'DAMPED_TRACK', next_entry.org)
                 self.make_constraint(deform, 'STRETCH_TO', next_entry.org)
 
-            else:
-                self.make_constraint(deform, 'DAMPED_TRACK', entry.org, head_tail=1.0)
-                self.make_constraint(deform, 'STRETCH_TO', entry.org, head_tail=1.0)
-
         else:
             self.make_constraint(deform, 'COPY_TRANSFORMS', entry.org)
 

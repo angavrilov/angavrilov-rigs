@@ -84,7 +84,7 @@ class Rig(BaseSpineRig):
 
     def make_torso_control_bone(self, org, name):
         name = self.copy_bone(org, name, parent=False)
-        align_bone_to_axis(self.obj, name, 'y', self.length * 0.6)
+        align_bone_to_axis(self.obj, name, 'y', length=self.length * 0.6)
 
         # Put the main control in the middle of the hip bone
         base_bone = self.get_bone(self.bones.org[0])
@@ -94,12 +94,12 @@ class Rig(BaseSpineRig):
 
     def make_hips_control_bone(self, org, name):
         name = self.copy_bone(org, name, parent=False)
-        align_bone_to_axis(self.obj, name, 'y', self.length / 4, flip=True)
+        align_bone_to_axis(self.obj, name, 'y', length=self.length / 4, flip=True)
         return name
 
     def make_chest_control_bone(self, org, name):
         name = self.copy_bone(org, name, parent=False)
-        align_bone_to_axis(self.obj, name, 'y', self.length / 3)
+        align_bone_to_axis(self.obj, name, 'y', length=self.length / 3)
         return name
 
     @stage.parent_bones
@@ -154,7 +154,7 @@ class Rig(BaseSpineRig):
 
     def make_mch_pivot_bone(self, org, name):
         name = self.copy_bone(org, make_mechanism_name(name), parent=False)
-        align_bone_to_axis(self.obj, name, 'y', self.length * 0.6 / 4)
+        align_bone_to_axis(self.obj, name, 'y', length=self.length * 0.6 / 4)
         return name
 
     def make_mch_widget_bone(self, org, name):
@@ -187,7 +187,7 @@ class Rig(BaseSpineRig):
 
     def make_mch_bone(self, org, is_hip):
         name = self.copy_bone(org, make_mechanism_name(strip_org(org)), parent=False)
-        align_bone_to_axis(self.obj, name, 'y', self.length / 10, flip=is_hip)
+        align_bone_to_axis(self.obj, name, 'y', length=self.length / 10, flip=is_hip)
         return name
 
     @stage.parent_bones
