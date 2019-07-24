@@ -355,6 +355,10 @@ class BaseLimbRig(BaseRig):
     def make_ik_control_bone(self, orgs):
         return self.copy_bone(orgs[2], make_derived_name(orgs[2], 'ctrl', '_ik'))
 
+    def register_switch_parents(self, pbuilder):
+        if self.rig_parent_bone:
+            pbuilder.register_parent(self, self.rig_parent_bone)
+
     def build_ik_parent_switch(self, pbuilder):
         ctrl = self.bones.ctrl
 
@@ -362,8 +366,7 @@ class BaseLimbRig(BaseRig):
         pcontrols = lambda: [ ctrl.master ] + self.get_all_ik_controls()
         pole_parents = lambda: [(self.bones.mch.ik_target, ctrl.ik)]
 
-        if self.rig_parent_bone:
-            pbuilder.register_parent(self, self.rig_parent_bone)
+        self.register_switch_parents(pbuilder)
 
         pbuilder.build_child(
             self, ctrl.ik,
@@ -488,7 +491,7 @@ class BaseLimbRig(BaseRig):
         self.make_property(self.prop_bone, 'IK_Stretch', default=1.0, description='IK Stretch')
         panel.custom_prop(self.prop_bone, 'IK_Stretch', text='IK Stretch', slider=True)
 
-        self.make_property(self.prop_bone, 'pole_vector', default=False, description='Pole Vector')
+        self.make_property(self.prop_bone, 'pole_vector', default=False, description='Use a pole target control')
 
         self.add_ik_pole_toggle_buttons(panel, rig_name)
 
@@ -837,7 +840,7 @@ class RigifyLimbIk2FkBase:
 
     keyflags = None
 
-    def init_invoke(self, context):
+    def init_execute(self, context):
         if self.fk_bones:
             self.fk_bone_list = json.loads(self.fk_bones)
         self.ik_bone_list = json.loads(self.ik_bones)
@@ -994,10 +997,7 @@ class RigifyLimbTogglePoleBase(RigifyLimbIk2FkBase):
                 )
 
     def init_invoke(self, context):
-        super().init_invoke(context)
-
-        obj = context.active_object
-        self.use_pole = not bool(obj.pose.bones[self.prop_bone][self.pole_prop])
+        self.use_pole = not bool(context.active_object.pose.bones[self.prop_bone][self.pole_prop])
 
 class POSE_OT_rigify_limb_toggle_pole(RigifyLimbTogglePoleBase, RigifySingleUpdateMixin, bpy.types.Operator):
     bl_idname = "pose.rigify_limb_toggle_pole_" + rig_id
@@ -1039,6 +1039,6 @@ def add_limb_toggle_pole(panel, *, master=None, ik_bones=[], ik_ctrl_bones=[], i
 
     row = panel.row(align=True)
     lsplit = row.split(factor=0.75, align=True)
-    lsplit.operator('POSE_OT_rigify_limb_toggle_pole_{rig_id}', text='Toggle Pole:', icon='FORCE_MAGNETIC', properties=op_props)
+    lsplit.operator('POSE_OT_rigify_limb_toggle_pole_{rig_id}', icon='FORCE_MAGNETIC', properties=op_props)
     lsplit.custom_prop(master, 'pole_vector', text='')
     row.operator('POSE_OT_rigify_limb_toggle_pole_bake_{rig_id}', text='', icon='ACTION_TWEAK', properties=op_props)

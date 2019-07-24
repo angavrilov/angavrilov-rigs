@@ -62,8 +62,8 @@ class Rig(BaseLimbRig):
     ####################################################
     # Overrides
 
-    def build_ik_parent_switch(self, pbuilder):
-        super().build_ik_parent_switch(pbuilder)
+    def register_switch_parents(self, pbuilder):
+        super().register_switch_parents(pbuilder)
 
         pbuilder.register_parent(self, self.bones.org.main[2], exclude_self=True)
 
