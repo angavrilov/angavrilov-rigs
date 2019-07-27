@@ -50,7 +50,7 @@ class Rig(SimpleChainRig):
     # Master Control
 
     @stage.generate_bones
-    def make_master_control_bone(self):
+    def make_master_control(self):
         orgs = self.bones.org
         name = self.copy_bone(orgs[0], make_derived_name(orgs[0], 'ctrl', '_master'), parent=True)
         self.bones.ctrl.master = name
@@ -60,7 +60,7 @@ class Rig(SimpleChainRig):
         self.get_bone(name).tail += (last_bone.tail - first_bone.head) * 1.25
 
     @stage.configure_bones
-    def configure_master_control_bone(self):
+    def configure_master_control(self):
         master = self.bones.ctrl.master
 
         bone = self.get_bone(master)

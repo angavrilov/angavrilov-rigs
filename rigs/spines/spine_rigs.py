@@ -24,7 +24,9 @@ from itertools import count
 
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.naming import make_derived_name
-from rigify.utils.bones import align_bone_orientation
+from rigify.utils.bones import align_bone_orientation, align_bone_to_axis
+from rigify.utils.widgets_basic import create_cube_widget
+from rigify.utils.switch_parent import SwitchParentBuilder
 
 from rigify.base_rig import stage
 
@@ -43,6 +45,42 @@ class BaseSpineRig(TweakChainRig):
             self.raise_error("Input to rig type must be a chain of 3 or more bones.")
 
         self.length = sum([self.get_bone(b).length for b in self.bones.org])
+
+    ####################################################
+    # BONES
+    #
+    # ctrl:
+    #   master
+    #     Main control.
+    #
+    ####################################################
+
+    ####################################################
+    # Master control bone
+
+    @stage.generate_bones
+    def make_master_control(self):
+        self.bones.ctrl.master = name = self.copy_bone(self.bones.org[0], 'torso')
+
+        align_bone_to_axis(self.obj, name, 'y', length=self.length * 0.6)
+
+        SwitchParentBuilder(self.generator).register_parent(self, name)
+
+    @stage.parent_bones
+    def parent_master_control(self):
+        self.set_bone_parent(self.bones.ctrl.master, self.rig_parent_bone)
+
+    @stage.configure_bones
+    def configure_master_control(self):
+        pass
+
+    @stage.generate_widgets
+    def make_master_control_widget(self):
+        create_cube_widget(
+            self.obj, self.bones.ctrl.master,
+            radius=0.5,
+            bone_transform_name=None
+        )
 
     ####################################################
     # Tweak bones

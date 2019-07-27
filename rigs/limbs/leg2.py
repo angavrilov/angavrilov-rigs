@@ -275,7 +275,7 @@ class Rig(BaseLimbRig):
     # Settings
 
     @classmethod
-    def parameters_ui(layout, params):
+    def parameters_ui(self, layout, params):
         super().parameters_ui(layout, params, 'Foot')
 
 
@@ -403,3 +403,5 @@ def create_sample(obj):
         eb.layers = (False, False, False, False, False, False, False, False, False, False, False, False, False, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False)
 
     arm.layers = (False, False, False, False, False, False, False, False, False, False, False, False, False, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False)
+
+    return bones

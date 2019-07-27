@@ -22,7 +22,7 @@ import bpy
 
 from rigify.utils.rig import connected_children_names
 from rigify.utils.layers import ControlLayersOption
-from rigify.utils.bones import BoneUtilityMixin, flip_bone
+from rigify.utils.bones import BoneUtilityMixin, flip_bone_chain
 
 from rigify.base_generate import SubstitutionRig
 
@@ -75,14 +75,8 @@ class Rig(SubstitutionRig, BoneUtilityMixin):
                 self.get_bone(head_orgs[0]).use_connect = False
 
             if tail_orgs:
-                for org in tail_orgs:
-                    self.set_bone_parent(org, None)
-
-                for org in tail_orgs:
-                    flip_bone(self.obj, org)
-
+                flip_bone_chain(self.obj, reversed(tail_orgs))
                 self.set_bone_parent(tail_orgs[0], spine_orgs[0])
-                self.parent_bone_chain(tail_orgs, use_connect=True)
 
             bpy.ops.object.mode_set(mode='OBJECT')
 

@@ -74,7 +74,7 @@ class Rig(BaseLimbRig):
     # Settings
 
     @classmethod
-    def parameters_ui(layout, params):
+    def parameters_ui(self, layout, params):
         super().parameters_ui(layout, params, 'Hand')
 
 

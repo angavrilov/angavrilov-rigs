@@ -52,17 +52,17 @@ class Rig(BaseHeadTailRig):
     # Master control
 
     @stage.generate_bones
-    def make_master_control_bone(self):
+    def make_master_control(self):
         org = self.bones.org[0]
         self.bones.ctrl.master = self.copy_bone(org, make_derived_name(org, 'ctrl', '_master'))
         self.default_prop_bone = self.bones.ctrl.master
 
     @stage.parent_bones
-    def parent_master_control_bone(self):
+    def parent_master_control(self):
         self.set_bone_parent(self.bones.ctrl.master, self.rig_parent_bone)
 
     @stage.configure_bones
-    def configure_master_control_bone(self):
+    def configure_master_control(self):
         bone = self.get_bone(self.bones.ctrl.master)
         bone.lock_location = True, True, True
 

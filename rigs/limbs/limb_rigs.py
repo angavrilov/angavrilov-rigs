@@ -176,7 +176,7 @@ class BaseLimbRig(BaseRig):
     # Master control
 
     @stage.generate_bones
-    def make_master_control_bone(self):
+    def make_master_control(self):
         org = self.bones.org.main[0]
         self.bones.mch.master = name = self.copy_bone(org, make_derived_name(org, 'mch', '_parent_socket'), scale=1/12)
         self.get_bone(name).roll = 0
@@ -185,12 +185,12 @@ class BaseLimbRig(BaseRig):
         self.prop_bone = self.bones.ctrl.master
 
     @stage.parent_bones
-    def parent_master_control_bone(self):
+    def parent_master_control(self):
         self.set_bone_parent(self.bones.ctrl.master, self.bones.mch.master)
         self.set_bone_parent(self.bones.mch.master, self.bones.mch.follow)
 
     @stage.configure_bones
-    def configure_master_control_bone(self):
+    def configure_master_control(self):
         bone = self.get_bone(self.bones.ctrl.master)
         bone.lock_location = (True, True, True)
         bone.lock_rotation = (True, True, True)
@@ -198,7 +198,7 @@ class BaseLimbRig(BaseRig):
         bone.lock_rotation_w = True
 
     @stage.rig_bones
-    def rig_master_control_bone(self):
+    def rig_master_control(self):
         self.make_constraint(self.bones.mch.master, 'COPY_ROTATION', self.bones.org.main[0])
 
     @stage.generate_widgets
@@ -362,23 +362,28 @@ class BaseLimbRig(BaseRig):
     def build_ik_parent_switch(self, pbuilder):
         ctrl = self.bones.ctrl
 
-        prop_bone = lambda: ctrl.master
         pcontrols = lambda: [ ctrl.master ] + self.get_all_ik_controls()
         pole_parents = lambda: [(self.bones.mch.ik_target, ctrl.ik)]
 
         self.register_switch_parents(pbuilder)
 
-        pbuilder.build_child(
-            self, ctrl.ik,
-            prop_bone=prop_bone, prop_id='IK_parent', prop_name='IK Parent',
-            controls=pcontrols,
+        self.build_bone_parent_switch(
+            pbuilder, ctrl.ik, select_parent='root',
+            prop_id='IK_parent', prop_name='IK Parent', controls=pcontrols,
         )
 
-        pbuilder.build_child(
-            self, ctrl.ik_pole, extra_parents=pole_parents,
-            prop_bone=prop_bone, prop_id='pole_parent', prop_name='Pole Parent',
-            controls=pcontrols, no_fix_rotation=True, no_fix_scale=True,
+        self.build_bone_parent_switch(
+            pbuilder, ctrl.ik_pole, extra_parents=pole_parents,
+            prop_id='pole_parent', prop_name='Pole Parent', controls=pcontrols,
+            no_fix_rotation=True, no_fix_scale=True,
         )
+
+    def build_bone_parent_switch(self, pbuilder, bone, **options):
+        pbuilder.build_child(self, bone, prop_bone=lambda:self.bones.ctrl.master, **options)
+
+    @stage.parent_bones
+    def parent_ik_controls(self):
+        self.set_bone_parent(self.bones.ctrl.ik_base, self.bones.mch.follow)
 
     @stage.configure_bones
     def configure_ik_controls(self):
@@ -484,7 +489,7 @@ class BaseLimbRig(BaseRig):
         self.make_property(self.prop_bone, 'IK_FK', default=0.0, description='IK/FK Switch')
         panel.custom_prop(self.prop_bone, 'IK_FK', text='IK-FK ({})'.format(rig_name), slider=True)
 
-        self.add_ik_snap_buttons(panel, rig_name)
+        self.add_global_buttons(panel, rig_name)
 
         panel = self.script.panel_with_selected_check(self, [ctrl.master, *self.get_all_ik_controls()])
 
@@ -493,9 +498,9 @@ class BaseLimbRig(BaseRig):
 
         self.make_property(self.prop_bone, 'pole_vector', default=False, description='Use a pole target control')
 
-        self.add_ik_pole_toggle_buttons(panel, rig_name)
+        self.add_ik_only_buttons(panel, rig_name)
 
-    def add_ik_snap_buttons(self, panel, rig_name):
+    def add_global_buttons(self, panel, rig_name):
         ctrl = self.bones.ctrl
         ik_chain = self.get_ik_output_chain()
 
@@ -516,7 +521,7 @@ class BaseLimbRig(BaseRig):
             rig_name=rig_name
         )
 
-    def add_ik_pole_toggle_buttons(self, panel, rig_name):
+    def add_ik_only_buttons(self, panel, rig_name):
         ctrl = self.bones.ctrl
         ik_chain = self.get_ik_output_chain()
 
@@ -1039,6 +1044,6 @@ def add_limb_toggle_pole(panel, *, master=None, ik_bones=[], ik_ctrl_bones=[], i
 
     row = panel.row(align=True)
     lsplit = row.split(factor=0.75, align=True)
-    lsplit.operator('POSE_OT_rigify_limb_toggle_pole_{rig_id}', icon='FORCE_MAGNETIC', properties=op_props)
+    lsplit.operator('pose.rigify_limb_toggle_pole_{rig_id}', icon='FORCE_MAGNETIC', properties=op_props)
     lsplit.custom_prop(master, 'pole_vector', text='')
-    row.operator('POSE_OT_rigify_limb_toggle_pole_bake_{rig_id}', text='', icon='ACTION_TWEAK', properties=op_props)
+    row.operator('pose.rigify_limb_toggle_pole_bake_{rig_id}', text='', icon='ACTION_TWEAK', properties=op_props)

@@ -201,7 +201,7 @@ class Rig(SimpleChainRig):
     # Master control bone
 
     @stage.generate_bones
-    def make_master_control_bone(self):
+    def make_master_control(self):
         self.bones.ctrl.master = self.copy_bone(
             self.bones.org[0], self.make_name('master'), parent=True,
             length = self.avg_length * 1.5
@@ -218,7 +218,7 @@ class Rig(SimpleChainRig):
             builder.register_parent(self, self.bones.org[-1], exclude_self=True)
 
     @stage.configure_bones
-    def configure_master_control_bone(self):
+    def configure_master_control(self):
         master = self.bones.ctrl.master
         ctrls = self.bones.ctrl.flatten()
         rig_name = self.name_base + self.name_suffix

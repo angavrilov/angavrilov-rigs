@@ -26,7 +26,7 @@ from rigify.utils.errors import MetarigError
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.naming import strip_org, make_deformer_name, make_mechanism_name
 from rigify.utils.bones import BoneDict, put_bone, align_bone_to_axis
-from rigify.utils.widgets_basic import create_circle_widget, create_cube_widget
+from rigify.utils.widgets_basic import create_circle_widget
 from rigify.utils.misc import map_list
 
 from rigify.base_rig import stage
@@ -71,6 +71,17 @@ class Rig(BaseSpineRig):
     ####################################################
 
     ####################################################
+    # Master control bone
+
+    @stage.generate_bones
+    def make_master_control(self):
+        super().make_master_control()
+
+        # Put the main control in the middle of the hip bone
+        base_bone = self.get_bone(self.bones.org[0])
+        put_bone(self.obj, self.bones.ctrl.master, (base_bone.head + base_bone.tail) / 2)
+
+    ####################################################
     # Main control bones
 
     @stage.generate_bones
@@ -78,19 +89,8 @@ class Rig(BaseSpineRig):
         orgs = self.bones.org
         pivot = self.pivot_pos
 
-        self.bones.ctrl.master = self.make_torso_control_bone(orgs[pivot], 'torso')
         self.bones.ctrl.hips = self.make_hips_control_bone(orgs[pivot-1], 'hips')
         self.bones.ctrl.chest = self.make_chest_control_bone(orgs[pivot], 'chest')
-
-    def make_torso_control_bone(self, org, name):
-        name = self.copy_bone(org, name, parent=False)
-        align_bone_to_axis(self.obj, name, 'y', length=self.length * 0.6)
-
-        # Put the main control in the middle of the hip bone
-        base_bone = self.get_bone(self.bones.org[0])
-        put_bone(self.obj, name, (base_bone.head + base_bone.tail) / 2)
-
-        return name
 
     def make_hips_control_bone(self, org, name):
         name = self.copy_bone(org, name, parent=False)
@@ -105,8 +105,6 @@ class Rig(BaseSpineRig):
     @stage.parent_bones
     def parent_control_chain(self):
         ctrl = self.bones.ctrl
-        org_parent = self.get_bone_parent(self.bones.org[0])
-        self.set_bone_parent(ctrl.master, org_parent)
         self.set_bone_parent(ctrl.hips, ctrl.master)
         self.set_bone_parent(ctrl.chest, ctrl.master)
 
@@ -118,16 +116,8 @@ class Rig(BaseSpineRig):
     def make_control_widgets(self):
         ctrl = self.bones.ctrl
         mch = self.bones.mch
-        self.make_master_widget(ctrl.master)
         self.make_control_widget(ctrl.hips, mch.wgt_hips)
         self.make_control_widget(ctrl.chest, mch.wgt_chest)
-
-    def make_master_widget(self, ctrl):
-        create_cube_widget(
-            self.obj, ctrl,
-            radius=0.5,
-            bone_transform_name=None
-        )
 
     def make_control_widget(self, ctrl, wgt_mch):
         self.get_bone(ctrl).custom_shape_transform = self.get_bone(wgt_mch)
