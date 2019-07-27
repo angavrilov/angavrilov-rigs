@@ -779,7 +779,7 @@ class BaseLimbRig(BaseRig):
             default = 'automatic'
         )
 
-        params.auto_align_extremity = bpy.BoolProperty(
+        params.auto_align_extremity = bpy.props.BoolProperty(
             name='auto_align_extremity',
             default=False,
             description="Auto Align Extremity Bone"
