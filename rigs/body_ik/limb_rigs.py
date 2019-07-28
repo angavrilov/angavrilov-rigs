@@ -325,6 +325,34 @@ class BaseBodyIkLegRig(BaseBodyIkLimbRig):
             )
 
 
+class BaseBodyIkArmRig(BaseBodyIkLimbRig):
+    mid_control_name = 'elbow'
+
+    def initialize(self):
+        from .shoulder_rigs import IkShoulderRig
+
+        super().initialize()
+
+        if not isinstance(self.rigify_parent, IkShoulderRig):
+            self.raise_error('Body IK arm must be a child of the IK shoulder rig.')
+
+        self.rigify_parent.arm_rig = self
+
+    ####################################################
+    # UI
+
+    def register_switch_parents(self, pbuilder):
+        parent = self.rig_parent_bone
+
+        try:
+            self.rig_parent_bone = None
+
+            super().register_switch_parents(pbuilder)
+
+        finally:
+            self.rig_parent_bone = parent
+
+
 #######################
 # Snap knee IK to FK ##
 #######################

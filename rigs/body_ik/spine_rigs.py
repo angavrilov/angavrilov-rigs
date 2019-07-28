@@ -147,19 +147,20 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         for args in zip(count(0), mch.hip_ik, mch.leg_offset):
             self.rig_hip_ik_mch_bone(*args)
 
-        self.rig_hip_ik_system(mch.hip_ik[0], mch.hip_ik[1],  mch.hip_ik_tgt)
+        self.make_constraint(mch.hip_ik[0], 'COPY_LOCATION', mch.leg_offset[0], head_tail=1)
+        self.rig_hip_ik_system(mch.hip_ik[0], mch.hip_ik[1], mch.hip_ik_tgt, mch.result[0])
 
     def rig_hip_ik_mch_bone(self, i, mch_ik, mch_in):
         self.make_driver(mch_ik, 'scale', index=1, variables=[(mch_in, 'length')])
 
-    def rig_hip_ik_system(self, mch_base, mch_ik, mch_tgt):
-        mch = self.bones.mch
-        self.make_constraint(mch_base, 'COPY_LOCATION', mch.leg_offset[0], head_tail=1)
-        self.make_constraint(mch_base, 'DAMPED_TRACK', mch.result[0])
+    def rig_hip_ik_system(self, mch_base, mch_ik, mch_tgt, pole):
+        '''
+        self.make_constraint(mch_base, 'DAMPED_TRACK', pole)
         self.make_constraint(
             mch_base, 'LOCKED_TRACK', mch_tgt,
             lock_axis='LOCK_Y', track_axis='TRACK_X',
         )
+        '''
 
         bone_ik = self.get_bone(mch_ik)
         bone_ik.lock_ik_y = bone_ik.lock_ik_z = True
@@ -167,7 +168,11 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         bone_ik.ik_min_x = -pi/2
         bone_ik.ik_max_x = pi/2
 
-        self.make_constraint(mch_ik, 'IK', mch_tgt, chain_count=2, use_stretch=False)
+        self.make_constraint(
+            mch_ik, 'IK', mch_tgt,
+            pole_target=self.obj, pole_subtarget=pole, pole_angle=pi,
+            chain_count=2, use_stretch=False,
+        )
 
     def rig_hip_ik_output(self, out, lim_both, lim_in1, lim_in2):
         inf_vars = {'inf1':(lim_in1, 'influence'), 'inf2':(lim_in2, 'influence')}
