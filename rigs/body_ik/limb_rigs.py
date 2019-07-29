@@ -64,11 +64,10 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
     ####################################################
     # UI
 
-    def build_bone_parent_switch(self, pbuilder, bone, **options):
-        if bone == self.bones.ctrl.ik:
-            options['context_rig'] = self.rigify_parent
+    def build_ik_parent_switch(self, pbuilder):
+        super().build_ik_parent_switch(pbuilder)
 
-        super().build_bone_parent_switch(pbuilder, bone, **options)
+        pbuilder.amend_child(self, self.bones.ctrl.ik, context_rig=self.rigify_parent)
 
     def add_global_buttons(self, panel, rig_name):
         super().add_global_buttons(panel, rig_name)
@@ -134,13 +133,12 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
         self.build_middle_ik_control_parent(self.bones.ctrl.ik_mid[0])
 
     def build_middle_ik_control_parent(self, ctrl):
-        self.build_bone_parent_switch(
-            SwitchParentBuilder(self.generator),
-            ctrl, select_parent='root',
-            context_rig=self.rigify_parent,
+        SwitchParentBuilder(self.generator).build_child(
+            self, ctrl, context_rig=self.rigify_parent, select_parent='root',
+            prop_bone=lambda:self.bones.ctrl.master,
             prop_id='IK_{}_parent'.format(self.mid_control_name),
             prop_name='IK {} Parent'.format(self.mid_control_name.title()),
-            controls=[ctrl, self.bones.ctrl.master],
+            controls=lambda:[ctrl, self.bones.ctrl.master],
         )
 
     def make_middle_ik_control_bone(self, i, org):
@@ -420,5 +418,5 @@ def add_limb_snap_mid_ik_to_fk(panel, *, master=None, fk_bones=[], ik_ctrl_bones
 
     add_fk_ik_snap_buttons(
         panel, 'pose.rigify_limb_mid_ik2fk_{rig_id}', 'pose.rigify_limb_mid_ik2fk_bake_{rig_id}',
-        label=label, rig_name=rig_name, properties=op_props, clear_bones=ik_ctrl_bones[1:], compact=compact,
+        label=label, rig_name=rig_name, properties=op_props, clear_bones=ik_ctrl_bones, compact=compact,
     )

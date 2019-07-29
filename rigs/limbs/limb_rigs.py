@@ -362,24 +362,22 @@ class BaseLimbRig(BaseRig):
     def build_ik_parent_switch(self, pbuilder):
         ctrl = self.bones.ctrl
 
+        master = lambda: self.bones.ctrl.master
         pcontrols = lambda: [ ctrl.master ] + self.get_all_ik_controls()
         pole_parents = lambda: [(self.bones.mch.ik_target, ctrl.ik)]
 
         self.register_switch_parents(pbuilder)
 
-        self.build_bone_parent_switch(
-            pbuilder, ctrl.ik, select_parent='root',
+        pbuilder.build_child(
+            self, ctrl.ik, prop_bone=master, select_parent='root',
             prop_id='IK_parent', prop_name='IK Parent', controls=pcontrols,
         )
 
-        self.build_bone_parent_switch(
-            pbuilder, ctrl.ik_pole, extra_parents=pole_parents,
+        pbuilder.build_child(
+            self, ctrl.ik_pole, prop_bone=master, extra_parents=pole_parents,
             prop_id='pole_parent', prop_name='Pole Parent', controls=pcontrols,
             no_fix_rotation=True, no_fix_scale=True,
         )
-
-    def build_bone_parent_switch(self, pbuilder, bone, **options):
-        pbuilder.build_child(self, bone, prop_bone=lambda:self.bones.ctrl.master, **options)
 
     @stage.parent_bones
     def parent_ik_controls(self):
