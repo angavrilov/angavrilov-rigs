@@ -147,3 +147,5 @@ def create_sample(obj, limb=False):
         bone.select_head = True
         bone.select_tail = True
         arm.edit_bones.active = bone
+
+    return bones

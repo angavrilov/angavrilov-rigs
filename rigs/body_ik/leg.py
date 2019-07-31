@@ -30,5 +30,5 @@ class Rig(limb_rigs.BaseBodyIkLegRig, leg.Rig):
 
 def create_sample(obj):
     bones = leg.create_sample(obj)
-    pbone = obj.pose.bones[bones['spine']]
+    pbone = obj.pose.bones[bones['thigh.L']]
     pbone.rigify_type = 'body_ik.leg'

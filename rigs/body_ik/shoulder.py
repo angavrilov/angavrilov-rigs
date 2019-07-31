@@ -27,6 +27,7 @@ from mathutils import Vector
 
 from rigify.utils.rig import connected_children_names
 from rigify.utils.animation import add_generic_snap_fk_to_ik
+from rigify.utils.bones import is_connected_position
 from rigify.utils.naming import strip_org, make_derived_name
 from rigify.utils.misc import map_list
 from rigify.utils.switch_parent import SwitchParentBuilder
@@ -36,9 +37,30 @@ from rigify.base_rig import stage, BaseRig
 from rigify.base_generate import SubstitutionRig
 
 
-class IkShoulderRig(BaseRig):
+class Rig(BaseRig):
+    "Shoulder bone with Body IK support."
+
     def find_org_bones(self, pose_bone):
         return pose_bone.name
+
+    def initialize(self):
+        from . import limb_rigs
+
+        super().initialize()
+
+        arms = [
+            child for child in self.rigify_children
+            if isinstance(child, limb_rigs.BaseBodyIkArmRig)
+        ]
+
+        if len(arms) != 1:
+            self.raise_error('IK shoulder must have one Body IK arm child.')
+
+        self.arm_rig = arms[0]
+
+        if not is_connected_position(self.obj, self.bones.org, self.arm_rig.bones.org.main[0]):
+            self.raise_error('The shoulder bone and arm chain must be in a connected position.')
+
 
     ####################################################
     # BONES
@@ -175,38 +197,3 @@ class IkShoulderRig(BaseRig):
             mch_ik, 'IK', mch_tgt,
             chain_count=2, use_stretch=False,
         )
-
-    ####################################################
-    # SETTINGS
-
-    @classmethod
-    def parameters_ui(self, layout, params):
-        pass
-
-
-class BaseShoulderArmRig(SubstitutionRig):
-    shoulder_rig_class = IkShoulderRig
-
-    def substitute(self):
-        params_copy = dict(self.params)
-        orgs = [self.base_bone] + connected_children_names(self.obj, self.base_bone)
-
-        if len(orgs) != 4:
-            self.raise_error("Shoulder+arm must be a chain of 4 bones.")
-
-        self.assign_params(orgs[1], params_copy)
-
-        return [
-            self.instantiate_rig(self.shoulder_rig_class, orgs[0]),
-            self.instantiate_rig(self.arm_rig_class, orgs[1]),
-        ]
-
-    @classmethod
-    def add_parameters(self, params):
-        self.shoulder_rig_class.add_parameters(params)
-        self.arm_rig_class.add_parameters(params)
-
-    @classmethod
-    def parameters_ui(self, layout, params):
-        self.shoulder_rig_class.parameters_ui(layout, params)
-        self.arm_rig_class.parameters_ui(layout, params)

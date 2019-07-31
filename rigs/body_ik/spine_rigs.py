@@ -41,11 +41,12 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         super().initialize()
 
         orgs = self.bones.org
-        legs = []
 
-        for child in self.rigify_children:
-            if isinstance(child, limb_rigs.BaseBodyIkLegRig) and self.get_bone_parent(child.bones.org.main[0]) == orgs[0]:
-                legs.append(child)
+        legs = [
+            child for child in self.rigify_children
+            if (isinstance(child, limb_rigs.BaseBodyIkLegRig) and
+                self.get_bone_parent(child.bones.org.main[0]) == orgs[0])
+        ]
 
         if len(legs) != 2:
             self.raise_error('IK spine requires two legs attached to the hip bone.')

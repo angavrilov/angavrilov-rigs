@@ -327,14 +327,13 @@ class BaseBodyIkArmRig(BaseBodyIkLimbRig):
     mid_control_name = 'elbow'
 
     def initialize(self):
-        from .shoulder_rigs import IkShoulderRig
+        from .shoulder import Rig as IkShoulderRig
 
         super().initialize()
 
         if not isinstance(self.rigify_parent, IkShoulderRig):
             self.raise_error('Body IK arm must be a child of the IK shoulder rig.')
 
-        self.rigify_parent.arm_rig = self
 
     ####################################################
     # UI

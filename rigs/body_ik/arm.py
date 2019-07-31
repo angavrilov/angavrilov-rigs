@@ -21,11 +21,14 @@
 import bpy
 
 from ..limbs import arm2 as arm
-from . import limb_rigs, shoulder_rigs
+from . import limb_rigs
 
 
-class ArmRig(limb_rigs.BaseBodyIkArmRig, arm.Rig):
+class Rig(limb_rigs.BaseBodyIkArmRig, arm.Rig):
     pass
 
-class Rig(shoulder_rigs.BaseShoulderArmRig):
-    arm_rig_class = ArmRig
+
+def create_sample(obj):
+    bones = arm.create_sample(obj)
+    pbone = obj.pose.bones[bones['upper_arm.L']]
+    pbone.rigify_type = 'body_ik.arm'
