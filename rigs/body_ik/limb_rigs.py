@@ -37,7 +37,7 @@ from rigify.utils.widgets_basic import create_bone_widget
 
 from rigify.base_rig import stage
 
-from ..limbs import limb_rigs, leg2 as leg
+from rigify.rigs.limbs import limb_rigs, leg
 
 
 IK_MID_LAYERS = ControlLayersOption(

@@ -31,7 +31,7 @@ from rigify.utils.misc import map_list
 
 from rigify.base_rig import stage
 
-from ..spines import spine_rigs
+from rigify.rigs.spines import spine_rigs
 
 
 class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):

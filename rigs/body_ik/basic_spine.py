@@ -20,7 +20,7 @@
 
 import bpy
 
-from ..spines import basic_spine
+from rigify.rigs.spines import basic_spine
 from . import spine_rigs
 
 

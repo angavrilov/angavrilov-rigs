@@ -20,7 +20,7 @@
 
 import bpy
 
-from ..limbs import arm2 as arm
+from rigify.rigs.limbs import arm
 from . import limb_rigs
 
 
