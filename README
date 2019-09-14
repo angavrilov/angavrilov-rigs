@@ -1,12 +1,15 @@
 Custom rigs as a Rigify feature set package.
 
-* limbs.spline_tentacle
+limbs.spline_tentacle
 
   WIP rig implementing a tentacle based on Spline IK, using new 2.8 capabilities.
 
-* body_ik
+body_ik.*
 
   A set of rigs demonstrating complicated rig subclassing and interaction by
   providing extra IK controls for knees and elbows, which when enabled move the
   hip/shoulder to maintain the control position. The leg rigs must be used in
   tandem with the provided spine rig, and the arms with the shoulder.
+
+Use the 'Download ZIP' button under 'Clone or download', and install the
+downloaded file via Rigify settings.
