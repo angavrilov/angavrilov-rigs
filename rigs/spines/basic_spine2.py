@@ -19,6 +19,7 @@
 # <pep8 compliant>
 
 import bpy
+import math
 
 from itertools import count, repeat
 from mathutils import Matrix
@@ -122,15 +123,24 @@ class Rig(BaseSpineRig):
         self.make_end_control_widget(ctrl.chest, mch.wgt_chest)
 
     def make_end_control_widget(self, ctrl, wgt_mch):
-        self.get_bone(ctrl).custom_shape_transform = self.get_bone(wgt_mch)
+        shape_bone = self.get_bone(wgt_mch)
+        is_animal = abs(shape_bone.z_axis.normalized().y) < 0.7
 
-        create_circle_widget(
+        self.get_bone(ctrl).custom_shape_transform = shape_bone
+
+        obj = create_circle_widget(
             self.obj, ctrl,
-            radius=1.0,
+            radius=1.2 if is_animal else 1.1,
             head_tail=0.0,
             head_tail_x=1.0,
             with_line=False,
         )
+
+        if is_animal:
+            # Tilt the widget toward the ground for horizontal spines
+            angle = math.copysign(28, shape_bone.x_axis.x)
+            rotmat = Matrix.Rotation(math.radians(angle), 4, 'X')
+            adjust_widget_transform_mesh(obj, rotmat, local=True)
 
     ####################################################
     # FK control bones
