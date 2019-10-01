@@ -29,7 +29,7 @@ from rigify.utils.bones import align_chain_x_axis, align_bone_x_axis, align_bone
 from rigify.utils.bones import align_bone_to_axis, flip_bone, put_bone, align_bone_orientation
 from rigify.utils.naming import make_derived_name
 from rigify.utils.misc import map_list, matrix_from_axis_roll, matrix_from_axis_pair
-from rigify.utils.widgets import adjust_widget_transform
+from rigify.utils.widgets import adjust_widget_transform_mesh
 from rigify.utils.widgets_basic import create_pivot_widget
 
 from rigify.rigs.widgets import create_foot_widget, create_ballsocket_widget
@@ -105,6 +105,10 @@ class Rig(BaseLimbRig):
     #   heel:
     #     Heel location marker bone
     # ctrl:
+    #   ik_pivot:
+    #     Custom pivot control.
+    #   ik_spin:
+    #     Toe spin control.
     #   heel:
     #     Foot roll control
     # mch:
@@ -131,8 +135,8 @@ class Rig(BaseLimbRig):
 
     def make_ik_ctrl_widget(self, ctrl):
         org = self.get_bone(self.bones.org.main[2])
-        obj = create_foot_widget(self.obj, ctrl, bone_transform_name=None)
-        adjust_widget_transform(obj, Matrix.Translation(org.vector))
+        obj = create_foot_widget(self.obj, ctrl)
+        adjust_widget_transform_mesh(obj, Matrix.Translation(org.vector))
 
     ####################################################
     # IK pivot controls
@@ -173,9 +177,14 @@ class Rig(BaseLimbRig):
         )
 
     @stage.generate_widgets
-    def make_ik_pivot_control_widgets(self):
+    def make_ik_pivot_control_widget(self):
         create_pivot_widget(self.obj, self.bones.ctrl.ik_pivot, square=True)
-        create_pivot_widget(self.obj, self.bones.ctrl.ik_spin, cap_size=2)
+
+    @stage.generate_widgets
+    def make_ik_spin_control_widget(self):
+        obj = create_ballsocket_widget(self.obj, self.bones.ctrl.ik_spin, size=0.75)
+        rotfix = Matrix.Rotation(math.pi/2, 4, self.main_axis.upper())
+        adjust_widget_transform_mesh(obj, rotfix, local=True)
 
     ####################################################
     # Heel control
@@ -196,12 +205,6 @@ class Rig(BaseLimbRig):
         bone = self.get_bone(self.bones.ctrl.heel)
         bone.lock_location = True, True, True
         bone.rotation_mode = self.heel_euler_order
-
-        if self.main_axis == 'x':
-            bone.lock_rotation = False, False, True
-        else:
-            bone.lock_rotation = True, False, False
-
         bone.lock_scale = True, True, True
 
     @stage.generate_widgets
@@ -240,7 +243,7 @@ class Rig(BaseLimbRig):
     @stage.parent_bones
     def parent_roll_mch_chain(self):
         chain = self.bones.mch.heel
-        self.set_bone_parent(chain[0], self.bones.ctrl.ik_spin, inherit_scale='AVERAGE')
+        self.set_bone_parent(chain[0], self.bones.ctrl.ik_spin)
         self.parent_bone_chain(chain)
 
     @stage.rig_bones
