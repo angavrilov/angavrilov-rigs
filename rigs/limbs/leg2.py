@@ -64,7 +64,10 @@ class Rig(BaseLimbRig):
 
         super().initialize()
 
+        self.pivot_type = self.params.foot_pivot_type
         self.heel_euler_order = 'ZXY' if self.main_axis == 'x' else 'XZY'
+
+        assert self.pivot_type in {'TOE', 'ANKLE_TOE', 'ANKLE_TOE_CUSTOM'}
 
     def prepare_bones(self):
         orgs = self.bones.org.main
@@ -121,11 +124,19 @@ class Rig(BaseLimbRig):
     # IK controls
 
     def get_extra_ik_controls(self):
-        return [self.bones.ctrl.heel, self.bones.ctrl.ik_pivot, self.bones.ctrl.ik_spin]
+        if self.pivot_type == 'TOE':
+            return [self.bones.ctrl.heel]
+        elif self.pivot_type == 'ANKLE_TOE':
+            return [self.bones.ctrl.heel, self.bones.ctrl.ik_spin]
+        else:
+            return [self.bones.ctrl.heel, self.bones.ctrl.ik_pivot, self.bones.ctrl.ik_spin]
 
     def make_ik_control_bone(self, orgs):
         name = self.copy_bone(orgs[2], make_derived_name(orgs[2], 'ctrl', '_ik'))
-        put_bone(self.obj, name, None, matrix=self.ik_matrix)
+        if self.pivot_type == 'TOE':
+            put_bone(self.obj, name, self.get_bone(name).tail, matrix=self.ik_matrix)
+        else:
+            put_bone(self.obj, name, None, matrix=self.ik_matrix)
         return name
 
     def register_switch_parents(self, pbuilder):
@@ -134,17 +145,28 @@ class Rig(BaseLimbRig):
         pbuilder.register_parent(self, self.bones.org.main[2], exclude_self=True)
 
     def make_ik_ctrl_widget(self, ctrl):
-        org = self.get_bone(self.bones.org.main[2])
         obj = create_foot_widget(self.obj, ctrl)
-        adjust_widget_transform_mesh(obj, Matrix.Translation(org.vector))
+
+        if self.pivot_type != 'TOE':
+            org = self.get_bone(self.bones.org.main[2])
+            adjust_widget_transform_mesh(obj, Matrix.Translation(org.vector))
 
     ####################################################
     # IK pivot controls
 
+    def get_ik_pivot_output(self):
+        if self.pivot_type == 'TOE':
+            return self.bones.ctrl.ik
+        else:
+            return self.bones.ctrl.ik_spin
+
     @stage.generate_bones
     def make_ik_pivot_controls(self):
-        self.bones.ctrl.ik_pivot = self.make_ik_pivot_bone(self.bones.org.main)
-        self.bones.ctrl.ik_spin = self.make_ik_spin_bone(self.bones.org.main)
+        if self.pivot_type != 'TOE':
+            if self.pivot_type != 'ANKLE_TOE':
+                self.bones.ctrl.ik_pivot = self.make_ik_pivot_bone(self.bones.org.main)
+
+            self.bones.ctrl.ik_spin = self.make_ik_spin_bone(self.bones.org.main)
 
     def make_ik_pivot_bone(self, orgs):
         name = self.copy_bone(orgs[2], make_derived_name(orgs[2], 'ctrl', '_pivot_ik'))
@@ -160,31 +182,38 @@ class Rig(BaseLimbRig):
 
     @stage.parent_bones
     def parent_ik_pivot_controls(self):
-        self.set_bone_parent(self.bones.ctrl.ik_pivot, self.bones.ctrl.ik)
-        self.set_bone_parent(self.bones.ctrl.ik_spin, self.bones.ctrl.ik_pivot)
+        if self.pivot_type == 'ANKLE_TOE':
+            self.set_bone_parent(self.bones.ctrl.ik_spin, self.bones.ctrl.ik)
+        elif self.pivot_type != 'TOE':
+            self.set_bone_parent(self.bones.ctrl.ik_pivot, self.bones.ctrl.ik)
+            self.set_bone_parent(self.bones.ctrl.ik_spin, self.bones.ctrl.ik_pivot)
 
     @stage.configure_bones
     def configure_ik_pivot_bones(self):
-        bone = self.get_bone(self.bones.ctrl.ik_spin)
-        bone.lock_location = True, True, True
+        if self.pivot_type != 'TOE':
+            bone = self.get_bone(self.bones.ctrl.ik_spin)
+            bone.lock_location = True, True, True
 
     @stage.rig_bones
     def rig_ik_pivot_controls(self):
-        ctrl = self.bones.ctrl
-        self.make_constraint(
-            ctrl.ik_spin, 'COPY_LOCATION', ctrl.ik_pivot,
-            space='LOCAL', invert_xyz=ALL_TRUE
-        )
+        if self.pivot_type == 'ANKLE_TOE_CUSTOM':
+            ctrl = self.bones.ctrl
+            self.make_constraint(
+                ctrl.ik_spin, 'COPY_LOCATION', ctrl.ik_pivot,
+                space='LOCAL', invert_xyz=ALL_TRUE
+            )
 
     @stage.generate_widgets
     def make_ik_pivot_control_widget(self):
-        create_pivot_widget(self.obj, self.bones.ctrl.ik_pivot, square=True)
+        if self.pivot_type == 'ANKLE_TOE_CUSTOM':
+            create_pivot_widget(self.obj, self.bones.ctrl.ik_pivot, square=True)
 
     @stage.generate_widgets
     def make_ik_spin_control_widget(self):
-        obj = create_ballsocket_widget(self.obj, self.bones.ctrl.ik_spin, size=0.75)
-        rotfix = Matrix.Rotation(math.pi/2, 4, self.main_axis.upper())
-        adjust_widget_transform_mesh(obj, rotfix, local=True)
+        if self.pivot_type != 'TOE':
+            obj = create_ballsocket_widget(self.obj, self.bones.ctrl.ik_spin, size=0.75)
+            rotfix = Matrix.Rotation(math.pi/2, 4, self.main_axis.upper())
+            adjust_widget_transform_mesh(obj, rotfix, local=True)
 
     ####################################################
     # Heel control
@@ -198,7 +227,7 @@ class Rig(BaseLimbRig):
 
     @stage.parent_bones
     def parent_heel_control_bone(self):
-        self.set_bone_parent(self.bones.ctrl.heel, self.bones.ctrl.ik_spin, inherit_scale='AVERAGE')
+        self.set_bone_parent(self.bones.ctrl.heel, self.get_ik_pivot_output(), inherit_scale='AVERAGE')
 
     @stage.configure_bones
     def configure_heel_control_bone(self):
@@ -243,7 +272,7 @@ class Rig(BaseLimbRig):
     @stage.parent_bones
     def parent_roll_mch_chain(self):
         chain = self.bones.mch.heel
-        self.set_bone_parent(chain[0], self.bones.ctrl.ik_spin)
+        self.set_bone_parent(chain[0], self.get_ik_pivot_output())
         self.parent_bone_chain(chain)
 
     @stage.rig_bones
@@ -323,8 +352,29 @@ class Rig(BaseLimbRig):
     # Settings
 
     @classmethod
+    def add_parameters(self, params):
+        super().add_parameters(params)
+
+        items = [
+            ('TOE', 'Toe',
+             'The foot pivots around the base of the toe'),
+            ('ANKLE_TOE', 'Ankle and Toe',
+             'The foots pivots at the ankle, with extra toe pivot'),
+            ('ANKLE_TOE_CUSTOM', 'Ankle, Custom and Toe',
+             'The foots pivots at the ankle, with extra toe and custom positioned pivots')
+        ]
+
+        params.foot_pivot_type = bpy.props.EnumProperty(
+            items   = items,
+            name    = "Foot Pivot",
+            default = 'ANKLE_TOE'
+        )
+
+    @classmethod
     def parameters_ui(self, layout, params):
         super().parameters_ui(layout, params, 'Foot')
+
+        layout.prop(params, 'foot_pivot_type')
 
 
 def create_sample(obj):
