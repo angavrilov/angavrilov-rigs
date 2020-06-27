@@ -28,6 +28,7 @@ from mathutils import Vector
 from rigify.utils.animation import SCRIPT_UTILITIES_BAKE
 from rigify.utils.naming import strip_org, make_derived_name
 from rigify.utils.misc import map_list
+from rigify.utils.bones import put_bone, set_bone_widget_transform
 
 from rigify.base_rig import stage
 
@@ -57,8 +58,11 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
     # BONES
     #
     # mch:
-    #   result[]:
-    #     Output of spine controls before Hip IK.
+    #   hip_offset:
+    #     Global position represents the offset applied by Hip IK.
+    #   last_tweak_offset:
+    #     Offset bone for the last tweak. With the ORG bones forms
+    #     the corrected tweak chain.
     #   leg_offset[]:
     #     Offset bones between leg base and hip base.
     #   hip_ik[], hip_ik_tgt:
@@ -80,7 +84,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         add_spine_ik_snap(
             panel,
             master=self.bones.ctrl.master,
-            result=self.bones.mch.result[0],
+            result=self.bones.ctrl.tweak[0],
             final=self.bones.org[0]
         )
 
@@ -100,7 +104,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
     @stage.parent_bones
     def parent_leg_offset_mch_bones(self):
         for mch in self.bones.mch.leg_offset:
-            self.set_bone_parent(mch, self.bones.mch.result[0])
+            self.set_bone_parent(mch, self.bones.ctrl.tweak[0])
 
     @stage.configure_bones
     def configure_leg_offset_mch_bones(self):
@@ -149,7 +153,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
             self.rig_hip_ik_mch_bone(*args)
 
         self.make_constraint(mch.hip_ik[0], 'COPY_LOCATION', mch.leg_offset[0], head_tail=1)
-        self.rig_hip_ik_system(mch.hip_ik[0], mch.hip_ik[1], mch.hip_ik_tgt, mch.result[0])
+        self.rig_hip_ik_system(mch.hip_ik[0], mch.hip_ik[1], mch.hip_ik_tgt, self.bones.ctrl.tweak[0])
 
     def rig_hip_ik_mch_bone(self, i, mch_ik, mch_in):
         self.make_driver(mch_ik, 'scale', index=1, variables=[(mch_in, 'length')])
@@ -202,29 +206,57 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         )
 
     ####################################################
-    # Result MCH chain
+    # Hip offset bones
 
     @stage.generate_bones
-    def make_result_mch_chain(self):
-        self.bones.mch.result = map_list(self.make_result_mch_bone, count(0), self.bones.org)
-
-    def make_result_mch_bone(self, i, org):
-        return self.copy_bone(org, make_derived_name(org, 'mch', '.result'))
+    def make_hip_offset_bones(self):
+        org = self.bones.org
+        mch = self.bones.mch
+        mch.hip_offset = self.copy_bone(org[0], make_derived_name(org[0], 'mch', '.offset'), scale=0.25)
+        mch.last_tweak_offset = self.copy_bone(org[-1], make_derived_name(org[-1], 'mch', '.end_offset'), scale=0.5)
+        put_bone(self.obj, mch.last_tweak_offset, self.get_bone(org[-1]).tail)
 
     @stage.parent_bones
-    def parent_result_mch_chain(self):
-        self.parent_bone_chain(self.bones.mch.result, use_connect=True)
-        self.set_bone_parent(self.bones.mch.result[0], self.rig_parent_bone)
+    def parent_hip_offset_bones(self):
+        mch = self.bones.mch
+        tweaks = self.bones.ctrl.tweak
+        self.set_bone_parent(mch.hip_offset, tweaks[0])
+        self.set_bone_parent(mch.last_tweak_offset, tweaks[-1])
+
+    @stage.rig_bones
+    def rig_hip_offset_bones(self):
+        mch = self.bones.mch
+        tweaks = self.bones.ctrl.tweak
+
+        self.rig_hip_ik_output(mch.hip_offset, mch.hip_ik[1], mch.leg_offset[0], mch.leg_offset[1])
+        self.make_constraint(mch.hip_offset, 'COPY_LOCATION', tweaks[0], invert_xyz=(True,True,True), use_offset=True, space='POSE')
+
+        self.make_constraint(mch.last_tweak_offset, 'COPY_LOCATION', mch.hip_offset, use_offset=True, space='POSE')
+
+    ####################################################
+    # Apply offsets
 
     def rig_org_bone(self, i, org, tweak, next_tweak):
-        mch = self.bones.mch
-        result = mch.result[i]
+        self.make_constraint(org, 'COPY_LOCATION', self.bones.mch.hip_offset, use_offset=True, space='POSE')
 
-        super().rig_org_bone(i, result, tweak, next_tweak)
-        self.make_constraint(org, 'COPY_TRANSFORMS', result)
+    @stage.rig_bones
+    def rig_deform_chain(self):
+        inputs = [*self.bones.org, self.bones.mch.last_tweak_offset]
+        for args in zip(count(0), self.bones.deform, inputs, inputs[1:]):
+            self.rig_deform_bone(*args)
 
-        if i == 0:
-            self.rig_hip_ik_output(org, mch.hip_ik[1], mch.leg_offset[0], mch.leg_offset[1])
+    '''
+    @stage.generate_widgets
+    def make_tweak_widgets(self):
+        tweaks = self.bones.ctrl.tweak
+
+        super().make_tweak_widgets()
+
+        for tweak, org in zip(tweaks, self.bones.org):
+            set_bone_widget_transform(self.obj, tweak, org)
+
+        set_bone_widget_transform(self.obj, tweaks[-1], self.bones.mch.last_tweak_offset)
+    '''
 
 
 ##########################

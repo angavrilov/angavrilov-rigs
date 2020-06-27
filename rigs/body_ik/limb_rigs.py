@@ -27,11 +27,12 @@ from mathutils import Vector
 
 from rigify.utils.animation import add_generic_snap_fk_to_ik, add_fk_ik_snap_buttons
 from rigify.utils.mechanism import driver_var_transform
-from rigify.utils.bones import align_bone_x_axis
+from rigify.utils.bones import align_bone_x_axis, set_bone_widget_transform
 from rigify.utils.naming import make_derived_name
 from rigify.utils.switch_parent import SwitchParentBuilder
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.misc import map_list
+from rigify.utils.components import CustomPivotControl
 
 from rigify.utils.widgets_basic import create_bone_widget
 
@@ -53,11 +54,15 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
     # ctrl:
     #   ik_mid[]:
     #     Controls for the knee/elbow IK feature
+    #   ik_mid_pivot (optional):
+    #     Custom pivot for mid IK.
     # mch:
     #   ik_mid[]:
     #     Output of the knee/elbow IK.
     #   ik_mid_twist:
     #     Extra bone used if original bones aren't auto-aligned.
+    #   ik_mid_pivot (optional):
+    #     Custom pivot output for mid IK.
     #
     ####################################################
 
@@ -88,7 +93,7 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
         panel.custom_prop(self.prop_bone, 'force_straight', text='IK Force Straight', slider=True)
 
         ctrl = self.bones.ctrl
-        mid_panel = self.script.panel_with_selected_check(self, [ctrl.master, *ctrl.ik_mid])
+        mid_panel = self.script.panel_with_selected_check(self, [ctrl.master] + self.get_all_mid_ik_controls())
 
         self.add_mid_ik_only_buttons(mid_panel, rig_name)
 
@@ -109,6 +114,7 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
             master=ctrl.master,
             fk_bones=ctrl.fk[0:3],
             ik_ctrl_bones=ctrl.ik_mid,
+            ik_extra_ctrls=self.get_extra_mid_ik_controls(),
             label='{} IK->FK'.format(self.mid_control_name.title()),
             rig_name=rig_name, compact=True,
         )
@@ -126,11 +132,32 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
     ####################################################
     # Knee IK control
 
+    def get_all_mid_ik_controls(self):
+        return self.bones.ctrl.ik_mid + self.get_extra_mid_ik_controls()
+
+    def get_extra_mid_ik_controls(self):
+        if self.component_mid_ik_pivot:
+            return [self.component_mid_ik_pivot.control]
+        else:
+            return []
+
+    def get_mid_ik_control_output(self):
+        if self.component_mid_ik_pivot:
+            return self.component_mid_ik_pivot.output
+        else:
+            return self.bones.ctrl.ik_mid[0]
+
     @stage.generate_bones
     def make_middle_ik_control_chain(self):
         self.bones.ctrl.ik_mid = map_list(self.make_middle_ik_control_bone, count(0), self.bones.org.main[1:3])
 
-        self.build_middle_ik_control_parent(self.bones.ctrl.ik_mid[0])
+        ik_name = self.bones.ctrl.ik_mid[0]
+        self.component_mid_ik_pivot = self.build_middle_ik_pivot(ik_name, scale=0.4)
+        self.build_middle_ik_control_parent(ik_name)
+
+    def build_middle_ik_pivot(self, ik_name, **args):
+        if self.use_ik_pivot:
+            return CustomPivotControl(self, 'ik_mid_pivot', ik_name, parent=ik_name, scale_mch=1, **args)
 
     def build_middle_ik_control_parent(self, ctrl):
         SwitchParentBuilder(self.generator).build_child(
@@ -138,7 +165,7 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
             prop_bone=lambda:self.bones.ctrl.master,
             prop_id='IK_{}_parent'.format(self.mid_control_name),
             prop_name='IK {} Parent'.format(self.mid_control_name.title()),
-            controls=lambda:[ctrl, self.bones.ctrl.master],
+            controls=lambda:self.get_all_mid_ik_controls() + [self.bones.ctrl.master],
         )
 
     def make_middle_ik_control_bone(self, i, org):
@@ -146,15 +173,19 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
 
     @stage.parent_bones
     def parent_middle_ik_control_chain(self):
-        self.parent_bone_chain(self.bones.ctrl.ik_mid, use_connect=True)
+        self.set_bone_parent(self.bones.ctrl.ik_mid[1], self.get_mid_ik_control_output(), use_connect=True)
 
     @stage.configure_bones
     def configure_middle_ik_control_chain(self):
-        IK_MID_LAYERS.assign(self.params, self.obj, self.bones.ctrl.ik_mid)
+        IK_MID_LAYERS.assign(self.params, self.obj, self.get_all_mid_ik_controls())
 
     @stage.generate_widgets
     def make_middle_ik_control_widgets(self):
-        for args in zip(count(0), self.bones.ctrl.ik_mid):
+        ctrls = self.bones.ctrl.ik_mid
+
+        set_bone_widget_transform(self.obj, ctrls[0], self.get_mid_ik_control_output())
+
+        for args in zip(count(0), ctrls):
             self.make_middle_ik_control_widget(*args)
 
     def make_middle_ik_control_widget(self, i, ctrl):
@@ -200,19 +231,20 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
     def rig_middle_ik_mch_chain(self):
         mch = self.bones.mch
         ctrl = self.bones.ctrl
+        mid_ctrl = self.get_mid_ik_control_output()
         twist = mch.ik_mid_twist or mch.ik_mid[0]
 
         bone_twist = self.get_bone(twist)
-        bone_ctrl = self.get_bone(ctrl.ik_mid[0])
+        bone_ctrl = self.get_bone(mid_ctrl)
 
         if bone_twist.z_axis.dot(bone_ctrl.vector) > 0:
             axis = 'TRACK_Z'
         else:
             axis = 'TRACK_NEGATIVE_Z'
 
-        self.make_constraint(twist, 'DAMPED_TRACK', ctrl.ik_mid[0])
+        self.make_constraint(twist, 'DAMPED_TRACK', mid_ctrl)
         self.make_constraint(
-            twist, 'LOCKED_TRACK', ctrl.ik_mid[0], head_tail=1,
+            twist, 'LOCKED_TRACK', mid_ctrl, head_tail=1,
             lock_axis='LOCK_Y', track_axis=axis,
         )
 
@@ -221,8 +253,8 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
                 mch.ik_mid[0], 'scale', index=i, variables=[(self.prop_bone, 'ik_mid_stretch')]
             )
 
-        self.make_constraint(mch.ik_mid[1], 'DAMPED_TRACK', ctrl.ik_mid[0], head_tail=1)
-        self.make_constraint(mch.ik_mid[1], 'COPY_SCALE', ctrl.ik_mid[0])
+        self.make_constraint(mch.ik_mid[1], 'DAMPED_TRACK', mid_ctrl, head_tail=1)
+        self.make_constraint(mch.ik_mid[1], 'COPY_SCALE', mid_ctrl)
 
         self.make_constraint(mch.ik_mid[2], 'COPY_TRANSFORMS', ctrl.ik_mid[1])
 
@@ -272,7 +304,7 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
             }
         )
 
-        self.make_constraint(mch, 'COPY_LOCATION', self.bones.ctrl.ik_mid[0])
+        self.make_constraint(mch, 'COPY_LOCATION', self.get_mid_ik_control_output())
 
         con = self.make_constraint(
             mch, 'COPY_LOCATION', self.get_ik_input_bone(),
@@ -366,12 +398,14 @@ class RigifyLimbMidIk2FkBase:
     stretch_prop:   StringProperty(name="Stretch Control", default='ik_mid_stretch')
     fk_bones:       StringProperty(name="FK Controls")
     ik_ctrl_bones:  StringProperty(name="IK Controls")
+    ik_extra_ctrls: StringProperty(name="IK Extra Controls")
 
     keyflags = None
 
     def init_execute(self, context):
         self.fk_bone_list = json.loads(self.fk_bones)
         self.ik_bone_list = json.loads(self.ik_ctrl_bones)
+        self.extra_ctrl_list = json.loads(self.ik_extra_ctrls)
 
     def save_frame_state(self, context, obj):
         return get_chain_transform_matrices(obj, self.fk_bone_list)
@@ -381,6 +415,13 @@ class RigifyLimbMidIk2FkBase:
         set_custom_property_value(
             obj, self.prop_bone, self.stretch_prop, mat.to_scale()[1], keyflags=self.keyflags
         )
+
+        # Remove extra control transform, if present
+        for extra in self.extra_ctrl_list:
+            set_transform_from_matrix(
+                obj, extra, Matrix.Identity(4), space='LOCAL', keyflags=self.keyflags
+            )
+
         set_chain_transforms_from_matrices(
             context, obj, self.ik_bone_list, matrices[1:], keyflags=self.keyflags
         )
@@ -399,12 +440,12 @@ class POSE_OT_rigify_limb_mid_ik2fk_bake(RigifyLimbMidIk2FkBase, RigifyBakeKeyfr
 
     def execute_scan_curves(self, context, obj):
         self.bake_add_bone_frames(self.fk_bone_list, TRANSFORM_PROPS_ALL)
-        ik_curves = self.bake_get_all_bone_curves(self.ik_bone_list, TRANSFORM_PROPS_ALL)
+        ik_curves = self.bake_get_all_bone_curves(self.ik_bone_list + self.extra_ctrl_list, TRANSFORM_PROPS_ALL)
         prop_curves = self.bake_get_all_bone_custom_prop_curves(self.prop_bone, [self.stretch_prop])
         return ik_curves + prop_curves
 ''']
 
-def add_limb_snap_mid_ik_to_fk(panel, *, master=None, fk_bones=[], ik_ctrl_bones=[], label='IK->FK', rig_name='', compact=None):
+def add_limb_snap_mid_ik_to_fk(panel, *, master=None, fk_bones=[], ik_ctrl_bones=[], ik_extra_ctrls=[], label='IK->FK', rig_name='', compact=None):
     panel.use_bake_settings()
     panel.script.add_utilities(SCRIPT_UTILITIES_OP_SNAP_MID_IK_FK)
     panel.script.register_classes(SCRIPT_REGISTER_OP_SNAP_MID_IK_FK)
@@ -413,6 +454,7 @@ def add_limb_snap_mid_ik_to_fk(panel, *, master=None, fk_bones=[], ik_ctrl_bones
         'prop_bone': master,
         'fk_bones': json.dumps(fk_bones),
         'ik_ctrl_bones': json.dumps(ik_ctrl_bones),
+        'ik_extra_ctrls': json.dumps(ik_extra_ctrls),
     }
 
     add_fk_ik_snap_buttons(

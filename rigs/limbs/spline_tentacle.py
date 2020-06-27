@@ -503,7 +503,7 @@ class Rig(SimpleChainRig):
         if self.use_fk:
             super().make_control_widgets()
 
-    def make_control_widget(self, ctrl):
+    def make_control_widget(self, i, ctrl):
         create_circle_widget(self.obj, ctrl, radius=0.3, head_tail=0.5)
 
     ##############################
