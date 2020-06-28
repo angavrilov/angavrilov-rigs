@@ -11,5 +11,9 @@ body_ik.*
   hip/shoulder to maintain the control position. The leg rigs must be used in
   tandem with the provided spine rig, and the arms with the shoulder.
 
+spines.blenrig_spine
+
+  A spine rig that mimics the behavior of the IK spine controls from BlenRig.
+
 Use the 'Download ZIP' button under 'Clone or download', and install the
 downloaded file via Rigify settings.
