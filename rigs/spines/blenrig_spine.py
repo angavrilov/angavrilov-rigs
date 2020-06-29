@@ -85,10 +85,12 @@ class Rig(BaseSpineRig):
         super().configure_master_control()
 
         master = self.bones.ctrl.master
-        self.make_property(master, 'fk_hips', 1.0, description='Hip bone rotation is defined purely by the main control')
+        self.make_property(master, 'fk_hips', 0.0, description='Hip bone rotation is defined purely by the main hips control')
+        self.make_property(master, 'fk_chest', 0.0, description='Use FK controls for the chest')
 
         panel = self.script.panel_with_selected_check(self, self.bones.ctrl.flatten())
         panel.custom_prop(master, 'fk_hips', text='FK Hips', slider=True)
+        panel.custom_prop(master, 'fk_chest', text='FK Chest', slider=True)
 
     ####################################################
     # Main control bones
@@ -106,11 +108,13 @@ class Rig(BaseSpineRig):
         self.bones.ctrl.hips = hips = self.make_hips_control_bone(orgs, 'hips')
         self.bones.ctrl.chest = self.make_chest_control_bone(orgs, 'chest')
 
-        self.component_hips_pivot = self.build_hips_pivot(hips)
+        self.component_hips_pivot = self.build_hips_pivot(
+            hips, position=self.get_end_control_pos(orgs, 1.5 / 4)
+        )
 
     def make_hips_control_bone(self, orgs, name):
         name = self.copy_bone(orgs[0], name)
-        put_bone(self.obj, name, self.get_end_control_pos(orgs, 1.25 / 4))
+        put_bone(self.obj, name, self.get_bone(orgs[0]).tail)
         align_bone_to_axis(self.obj, name, 'z', length=self.length / 4)
         return name
 
@@ -212,8 +216,6 @@ class Rig(BaseSpineRig):
         for args in zip(count(1), self.bones.ctrl.ik_tweak):
             self.configure_ik_tweak_bone(*args)
 
-        ControlLayersOption.TWEAK.assign(self.params, self.obj, self.bones.ctrl.ik_tweak)
-
     def configure_ik_tweak_bone(self, i, ctrl):
         bone = self.get_bone(ctrl)
         bone.lock_scale = True, True, True
@@ -268,19 +270,37 @@ class Rig(BaseSpineRig):
 
     @stage.generate_bones
     def make_control_chain(self):
-        pass
+        self.bones.ctrl.fk = map_list(self.make_control_bone, count(0), self.bones.org[1:])
 
     @stage.parent_bones
     def parent_control_chain(self):
-        pass
+        self.set_bone_parent(self.bones.ctrl.fk[0], self.bones.ctrl.master)
+        self.parent_bone_chain(self.bones.ctrl.fk, use_connect=True)
 
     @stage.configure_bones
     def configure_control_chain(self):
-        pass
+        for args in zip(count(0), self.bones.ctrl.fk, self.bones.org[1:]):
+            self.configure_control_bone(*args)
 
-    @stage.generate_widgets
-    def make_control_widgets(self):
-        pass
+        ControlLayersOption.FK.assign_rig(self, self.bones.ctrl.fk)
+
+        shared_ctls = [self.bones.ctrl.hips, self.bones.ctrl.master]
+        if self.component_hips_pivot:
+            shared_ctls.append(self.component_hips_pivot.control)
+
+        ControlLayersOption.FK.assign_rig(self, shared_ctls, combine=True, priority=-1)
+
+    @stage.configure_bones
+    def rig_control_chain(self):
+        for args in zip(count(0), self.bones.ctrl.fk, self.bones.mch.ik_forward[1:]):
+            self.rig_control_bone(*args)
+
+    def rig_control_bone(self, i, fk, ik):
+        con = self.make_constraint(fk, 'COPY_TRANSFORMS', ik)
+        self.make_driver(con, 'influence', variables=[(self.bones.ctrl.master, 'fk_chest')], polynomial=[1.0,-1.0])
+
+    def make_control_widget(self, i, ctrl):
+        create_circle_widget(self.obj, ctrl, radius=1.0, head_tail=0.5)
 
     ####################################################
     # MCH IK back chain
@@ -367,7 +387,7 @@ class Rig(BaseSpineRig):
     @stage.parent_bones
     def parent_tweak_chain(self):
         # Experiment: First tweak only affects the deform bone
-        parents = [self.bones.org[0], *self.bones.mch.ik_forward[1:]]
+        parents = [self.bones.org[0], *self.bones.ctrl.fk, self.bones.ctrl.fk[-1]]
         for args in zip(self.bones.ctrl.tweak, parents):
             self.set_bone_parent(*args)
 
@@ -392,11 +412,15 @@ class Rig(BaseSpineRig):
             description = "Create a rotation pivot control that can be repositioned arbitrarily for the hips"
         )
 
+        ControlLayersOption.FK.add_parameters(params)
+
     @classmethod
     def parameters_ui(self, layout, params):
         super().parameters_ui(layout, params)
 
         layout.prop(params, 'make_custom_hips_pivot')
+
+        ControlLayersOption.FK.parameters_ui(layout, params)
 
 
 def create_sample(obj):
