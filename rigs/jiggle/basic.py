@@ -27,6 +27,7 @@ from rigify.utils.bones import put_bone, copy_bone_properties, align_bone_orient
 from rigify.utils.naming import strip_org, make_derived_name
 from rigify.utils.misc import map_list
 from rigify.utils.widgets import create_widget
+from rigify.utils.widgets_basic import create_circle_widget
 
 from rigify.base_rig import stage, BaseRig
 
@@ -54,8 +55,13 @@ class Rig(BaseRig, RelinkConstraintsMixin):
             len(self.get_bone(self.bones.org[-1]).constraints) > 0,
         ]
 
+        self.use_master_control = self.params.make_extra_control
+
     def parent_bones(self):
         self.rig_parent_bone = self.get_bone_parent(self.bones.org[0])
+
+    def get_master_parent(self):
+        return self.rig_parent_bone
 
     def prepare_bones(self):
         org = self.bones.org
@@ -82,12 +88,39 @@ class Rig(BaseRig, RelinkConstraintsMixin):
     #   back, front:
     #     Jiggle parent bones.
     # ctrl:
+    #   master:
+    #     Main control
     #   back, front:
     #     Jiggle controls.
     # deform:
     #   Deform bone
     #
     ##############################
+
+    ##############################
+    # Master control
+
+    @stage.generate_bones
+    def make_master_control(self):
+        if self.use_master_control:
+            org = self.bones.org[0]
+            self.bones.ctrl.master = self.copy_bone(org, make_derived_name(org, 'ctrl', '_master'))
+
+    @stage.parent_bones
+    def parent_master_control(self):
+        if self.use_master_control:
+            self.set_bone_parent(self.bones.ctrl.master, self.get_master_parent())
+
+    def get_jiggle_parent(self):
+        if self.use_master_control:
+            return self.bones.ctrl.master
+        else:
+            return self.get_master_parent()
+
+    @stage.generate_widgets
+    def make_master_control_widget(self):
+        if self.use_master_control:
+            create_circle_widget(self.obj, self.bones.ctrl.master, radius=1.0, head_tail=0.5)
 
     ##############################
     # Constraint MCH chain
@@ -104,9 +137,9 @@ class Rig(BaseRig, RelinkConstraintsMixin):
     @stage.parent_bones
     def parent_constraint_mch_chain(self):
         if self.has_constraints[0]:
-            self.set_bone_parent(self.bones.mch.back, self.rig_parent_bone)
+            self.set_bone_parent(self.bones.mch.back, self.get_jiggle_parent())
         if self.has_constraints[1]:
-            self.set_bone_parent(self.bones.mch.front, self.rig_parent_bone)
+            self.set_bone_parent(self.bones.mch.front, self.get_jiggle_parent())
 
     @stage.configure_bones
     def setup_constraint_mch_chain(self):
@@ -149,8 +182,8 @@ class Rig(BaseRig, RelinkConstraintsMixin):
 
     @stage.parent_bones
     def parent_control_chain(self):
-        self.set_bone_parent(self.bones.ctrl.back, self.bones.mch.back if self.has_constraints[0] else self.rig_parent_bone)
-        self.set_bone_parent(self.bones.ctrl.front, self.bones.mch.front if self.has_constraints[1] else self.rig_parent_bone)
+        self.set_bone_parent(self.bones.ctrl.back, self.bones.mch.back if self.has_constraints[0] else self.get_jiggle_parent())
+        self.set_bone_parent(self.bones.ctrl.front, self.bones.mch.front if self.has_constraints[1] else self.get_jiggle_parent())
 
     @stage.configure_bones
     def configure_control_chain(self):
@@ -208,12 +241,15 @@ class Rig(BaseRig, RelinkConstraintsMixin):
 
     @stage.generate_bones
     def make_deform_chain(self):
-        org = self.bones.org[0]
-        self.bones.deform = self.copy_bone(org, make_derived_name(org, 'def'))
+        self.bones.deform = map_list(self.make_deform_bone, count(0), self.bones.org)
+
+    def make_deform_bone(self, i, org):
+        return self.copy_bone(org, make_derived_name(org, 'def'))
 
     @stage.parent_bones
     def parent_deform_chain(self):
-        self.set_bone_parent(self.bones.deform, self.bones.org[0])
+        for args in zip(self.bones.deform, self.bones.org):
+            self.set_bone_parent(*args)
 
     ##############################
     # UI
@@ -227,19 +263,28 @@ class Rig(BaseRig, RelinkConstraintsMixin):
             description="The back control follows the front one"
             )
 
+        params.make_extra_control = bpy.props.BoolProperty(
+            name        = "Extra Control",
+            default     = False,
+            description = "Create an optional control"
+        )
+
+
     @classmethod
     def parameters_ui(self, layout, params):
+        layout.row().prop(params, "make_extra_control", text="Master Control")
         layout.row().prop(params, "relink_constraints")
         layout.row().prop(params, "jiggle_follow_front", slider=True)
 
 
-def create_back_widget(rig, bone_name, size=1.0, bone_transform_name=None):
+def create_back_widget(rig, bone_name, size=1.5, bone_transform_name=None):
     obj = create_widget(rig, bone_name, bone_transform_name)
     if obj is not None:
-        verts = [(3.63161e-07*size, -6.80926e-08*size, 0.5*size), (3.63161e-07*size, 7.94414e-08*size, -0.5*size),
-                 (0.5*size, 4.53951e-08*size, -1.4186e-07*size), (-0.5*size, 4.53951e-08*size, -1.4186e-07*size),
-                 (-0.5*size, 0.190058*size, -1.02139e-07*size), (0.5*size, 0.190058*size, -1.02139e-07*size),
-                 (3.63161e-07*size, 0.190058*size, 0.5*size), (3.63161e-07*size, 0.190058*size, -0.5*size),
+        ysize = 1
+        verts = [(3.63161e-07*size, -6.80926e-08*ysize, 0.5*size), (3.63161e-07*size, 7.94414e-08*ysize, -0.5*size),
+                 (0.5*size, 4.53951e-08*ysize, -1.4186e-07*size), (-0.5*size, 4.53951e-08*ysize, -1.4186e-07*size),
+                 (-0.5*size, 0.190058*ysize, -1.02139e-07*size), (0.5*size, 0.190058*ysize, -1.02139e-07*size),
+                 (3.63161e-07*size, 0.190058*ysize, 0.5*size), (3.63161e-07*size, 0.190058*ysize, -0.5*size),
                  ]
         edges = [(1, 0), (3, 2), (4, 3), (2, 5), (0, 6), (7, 1), ]
         faces = []
@@ -251,26 +296,27 @@ def create_back_widget(rig, bone_name, size=1.0, bone_transform_name=None):
     else:
         return None
 
-def create_front_widget(rig, bone_name, size=1.0, bone_transform_name=None):
+def create_front_widget(rig, bone_name, size=1.5, bone_transform_name=None):
     obj = create_widget(rig, bone_name, bone_transform_name)
     if obj is not None:
-        verts = [(-0.119293*size, 1.06882*size, -1.13704e-07*size), (-0.234082*size, 1.04806*size, -1.38422e-07*size),
-                 (-0.339872*size, 1.00363*size, -1.28844e-07*size), (-0.432598*size, 0.932699*size, -9.39291e-08*size),
-                 (-0.508696*size, 0.839974*size, -4.94364e-08*size), (-0.565242*size, 0.734184*size, -1.38422e-07*size),
-                 (-0.600063*size, 0.619395*size, -3.95491e-08*size), (0*size, 1.06882*size, -0.119377*size),
-                 (0*size, 1.04806*size, -0.234166*size), (0*size, 1.00363*size, -0.339956*size),
-                 (0*size, 0.932699*size, -0.432682*size), (0*size, 0.839974*size, -0.50878*size),
-                 (0*size, 0.734183*size, -0.565326*size), (0*size, 0.619394*size, -0.600147*size),
-                 (0*size, 0.500018*size, -0.611904*size), (0.119293*size, 1.06882*size, -1.13704e-07*size),
-                 (0.234082*size, 1.04806*size, -1.38422e-07*size), (0.339872*size, 1.00363*size, -1.28844e-07*size),
-                 (0.432598*size, 0.932699*size, -9.39291e-08*size), (0.508696*size, 0.839974*size, -4.94364e-08*size),
-                 (0.565242*size, 0.734184*size, -1.38422e-07*size), (0.600063*size, 0.619395*size, -3.95491e-08*size),
-                 (0.611821*size, 0.500018*size, -3.95491e-08*size), (0*size, 1.06882*size, 0.119377*size),
-                 (0*size, 1.04806*size, 0.234165*size), (0*size, 1.00363*size, 0.339956*size),
-                 (0*size, 0.9327*size, 0.432681*size), (0*size, 0.839974*size, 0.508779*size),
-                 (0*size, 0.734184*size, 0.565326*size), (0*size, 0.619395*size, 0.600146*size),
-                 (0*size, 0.500018*size, 0.611904*size), (0*size, 1.06916*size, -4.44927e-08*size),
-                 (-0.611821*size, 0.500018*size, -3.95491e-08*size), ]
+        ysize = 1/1.06882
+        verts = [(-0.119293*size, 1.06882*ysize, -1.13704e-07*size), (-0.234082*size, 1.04806*ysize, -1.38422e-07*size),
+                 (-0.339872*size, 1.00363*ysize, -1.28844e-07*size), (-0.432598*size, 0.932699*ysize, -9.39291e-08*size),
+                 (-0.508696*size, 0.839974*ysize, -4.94364e-08*size), (-0.565242*size, 0.734184*ysize, -1.38422e-07*size),
+                 (-0.600063*size, 0.619395*ysize, -3.95491e-08*size), (0*size, 1.06882*ysize, -0.119377*size),
+                 (0*size, 1.04806*ysize, -0.234166*size), (0*size, 1.00363*ysize, -0.339956*size),
+                 (0*size, 0.932699*ysize, -0.432682*size), (0*size, 0.839974*ysize, -0.50878*size),
+                 (0*size, 0.734183*ysize, -0.565326*size), (0*size, 0.619394*ysize, -0.600147*size),
+                 (0*size, 0.500018*ysize, -0.611904*size), (0.119293*size, 1.06882*ysize, -1.13704e-07*size),
+                 (0.234082*size, 1.04806*ysize, -1.38422e-07*size), (0.339872*size, 1.00363*ysize, -1.28844e-07*size),
+                 (0.432598*size, 0.932699*ysize, -9.39291e-08*size), (0.508696*size, 0.839974*ysize, -4.94364e-08*size),
+                 (0.565242*size, 0.734184*ysize, -1.38422e-07*size), (0.600063*size, 0.619395*ysize, -3.95491e-08*size),
+                 (0.611821*size, 0.500018*ysize, -3.95491e-08*size), (0*size, 1.06882*ysize, 0.119377*size),
+                 (0*size, 1.04806*ysize, 0.234165*size), (0*size, 1.00363*ysize, 0.339956*size),
+                 (0*size, 0.9327*ysize, 0.432681*size), (0*size, 0.839974*ysize, 0.508779*size),
+                 (0*size, 0.734184*ysize, 0.565326*size), (0*size, 0.619395*ysize, 0.600146*size),
+                 (0*size, 0.500018*ysize, 0.611904*size), (0*size, 1.06916*ysize, -4.44927e-08*size),
+                 (-0.611821*size, 0.500018*ysize, -3.95491e-08*size), ]
         edges = [(13, 14), (12, 13), (11, 12), (10, 11), (9, 10), (8, 9), (7, 8), (5, 6), (4, 5), (3, 4),
                  (2, 3), (1, 2), (0, 1), (21, 22), (20, 21), (19, 20), (18, 19), (17, 18), (16, 17), (15, 16),
                  (29, 30), (28, 29), (27, 28), (26, 27), (25, 26), (24, 25), (23, 24), (31, 7), (31, 0), (31, 15),
