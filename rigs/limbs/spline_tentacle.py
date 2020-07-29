@@ -43,10 +43,10 @@ class Rig(SimpleChainRig):
         self.name_suffix = name_suffix
 
         # Find the spline object if it exists
-        self.spline_name = self.obj.name + '-MCH-' + name_base + name_sep + 'spline' + name_suffix
+        self.spline_name = self.obj.name + '-MCH-' + name_base + self.name_sep + 'spline' + name_suffix
         self.spline_obj = None
 
-        if self.generator.id_store.rigify_generate_mode == 'overwrite':
+        if self.generator.metarig.data.rigify_generate_mode == 'overwrite':
             if self.spline_name in bpy.data.objects:
                 self.spline_obj = bpy.data.objects[self.spline_name]
 
