@@ -1,5 +1,6 @@
 rigify_info = {
-    "name": "Experimental Rigs by Alexander Gavrilov"
+    "name": "Experimental Rigs by Alexander Gavrilov",
+    "link": "https://github.com/angavrilov/angavrilov-rigs",
 }
 
 from bpy.utils import register_class, unregister_class
