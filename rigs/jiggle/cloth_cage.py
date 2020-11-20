@@ -46,6 +46,11 @@ class Rig(basic.Rig):
     with 'option_' are automatically copied to the rig bone and linked
     with drivers. Anchor empties parented to the cage can be used to
     feed the result of cloth simulation and/or cage shape keys to the rig.
+
+    Resetting all custom properties on the cage object and mesh to defaults,
+    and disabling the Armature modifier must always reconfigure it and the
+    anchors into the rest shape that the rig should bind to. The cage can only
+    depend on the first deform bone of this rig.
     """
 
     def initialize(self):
@@ -56,6 +61,7 @@ class Rig(basic.Rig):
             self.report_error('Physics cage object is not specified')
 
         self.use_shape_anchor = self.params.jiggle_shape_anchor is not None
+        self.use_shape_only_location = self.params.jiggle_shape_only_location
         self.use_front_anchor = len(self.bones.org) > 1 and self.params.jiggle_front_anchor is not None
 
     ##############################
@@ -94,19 +100,29 @@ class Rig(basic.Rig):
     def make_mch_shape_anchor(self):
         if self.use_shape_anchor:
             org = self.bones.org[0]
-            self.bones.mch.shape_anchor = map_list(self.make_mch_shape_anchor_bone, range(4), repeat(org))
+            if self.use_shape_only_location:
+                self.bones.mch.shape_anchor = map_list(self.make_mch_shape_anchor_bone, range(2), repeat(org))
+            else:
+                self.bones.mch.shape_anchor = map_list(self.make_mch_shape_anchor_bone, range(4), repeat(org))
 
     def make_mch_shape_anchor_bone(self, i, org):
-        return self.copy_bone(org, make_derived_name(org, 'mch', '_shape'+str(i)))
+        name = self.copy_bone(org, make_derived_name(org, 'mch', '_shape'+str(i)))
+
+        if i == 0 and self.use_shape_only_location:
+            pos = self.params.jiggle_shape_anchor.matrix_world.translation
+            put_bone(self.obj, name, self.obj.matrix_world.inverted() @ pos)
+
+        return name
 
     @stage.parent_bones
     def parent_mch_shape_anchor(self):
         if self.use_shape_anchor:
             chain = self.bones.mch.shape_anchor
             self.generator.disable_auto_parent(chain[0])
-            self.generator.disable_auto_parent(chain[1])
-            self.set_bone_parent(chain[2], chain[1])
-            self.set_bone_parent(chain[3], self.rig_parent_bone)
+            if not self.use_shape_only_location:
+                self.generator.disable_auto_parent(chain[1])
+                self.set_bone_parent(chain[2], chain[1])
+            self.set_bone_parent(chain[-1], self.rig_parent_bone)
 
     @stage.rig_bones
     def rig_mch_shape_anchor(self):
@@ -114,16 +130,22 @@ class Rig(basic.Rig):
             chain = self.bones.mch.shape_anchor
             anchor = self.params.jiggle_shape_anchor
 
-            make_constraint(self.get_bone(chain[1]), 'CHILD_OF', anchor, inverse_matrix=anchor.matrix_world.inverted())
+            if self.use_shape_only_location:
+                make_constraint(self.get_bone(chain[0]), 'COPY_LOCATION', anchor, space='WORLD')
 
-            self.make_constraint(chain[2], 'COPY_TRANSFORMS', chain[0], space='POSE')
-            self.make_constraint(chain[3], 'COPY_TRANSFORMS', chain[1], space='LOCAL')
+                self.make_constraint(chain[1], 'COPY_LOCATION', chain[0], space='LOCAL')
+                self.make_constraint(self.bones.deform[0], 'COPY_LOCATION', chain[0], invert_xyz=(True,True,True), space='LOCAL')
+            else:
+                make_constraint(self.get_bone(chain[1]), 'CHILD_OF', anchor, inverse_matrix=anchor.matrix_world.inverted())
 
-            self.make_constraint(self.bones.deform[0], 'COPY_TRANSFORMS', chain[2], space='LOCAL')
+                self.make_constraint(chain[2], 'COPY_TRANSFORMS', chain[0], space='POSE')
+                self.make_constraint(chain[3], 'COPY_TRANSFORMS', chain[1], space='LOCAL')
+
+                self.make_constraint(self.bones.deform[0], 'COPY_TRANSFORMS', chain[2], space='LOCAL')
 
     def get_master_parent(self):
         if self.use_shape_anchor:
-            return self.bones.mch.shape_anchor[3]
+            return self.bones.mch.shape_anchor[-1]
         else:
             return self.rig_parent_bone
 
@@ -169,6 +191,11 @@ class Rig(basic.Rig):
             description='Anchor used to move the rig to match the shape keys of the cage',
         )
 
+        params.jiggle_shape_only_location = bpy.props.BoolProperty(
+            default=True, name='Only Use Shape Anchor Location',
+            description='Only location of the shape anchor is used',
+        )
+
     @classmethod
     def parameters_ui(self, layout, params):
         super().parameters_ui(layout, params)
@@ -182,6 +209,10 @@ class Rig(basic.Rig):
         row.operator('mesh.rigify_add_jiggle_cloth_cage', text='Add Sample Cage')
 
         layout.prop(params, 'jiggle_shape_anchor')
+
+        row = layout.row()
+        row.active = not not params.jiggle_shape_anchor
+        row.prop(params, 'jiggle_shape_only_location')
 
         row = layout.row()
         row.enabled = not params.jiggle_shape_anchor
@@ -313,14 +344,14 @@ class MESH_OT_rigify_add_jiggle_cloth_cage(bpy.types.Operator):
         cs.tension_damping = 0.5
         cs.compression_damping = 0.5
         cs.shear_damping = 0.5
-        cs.bending_damping = 0.2
+        cs.bending_damping = 0.5
 
         cs.use_internal_springs = True
         cs.internal_tension_stiffness = 0.001
         cs.internal_compression_stiffness = 0.001
 
         cs.use_pressure = True
-        cs.pressure_factor = 200
+        cs.pressure_factor = 400
         cs.fluid_density = 20
 
         cs.shrink_min = 0.05
