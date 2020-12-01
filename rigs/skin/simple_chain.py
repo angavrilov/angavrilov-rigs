@@ -32,8 +32,6 @@ from rigify.utils.misc import map_list
 
 from rigify.base_rig import stage
 
-from rigify.rigs.chain_rigs import TweakChainRig
-
 from .skin_rigs import BaseSkinChainRigWithRotationOption, ControlBoneNode
 
 
@@ -78,6 +76,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
         orgs = self.bones.org
 
+        self.num_orgs = len(orgs)
         self.length = sum([self.get_bone(b).length for b in orgs]) / len(orgs)
         self.chain_rot = compute_chain_orientation(self.obj, orgs).to_quaternion()
 
@@ -105,7 +104,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         bone = self.get_bone(org)
         name = make_derived_name(org, 'ctrl', '_end' if is_end else '')
         pos = bone.tail if is_end else bone.head
-        return ControlBoneNode(self, org, name, point=pos, size=self.length/2)
+        return ControlBoneNode(self, org, name, point=pos, size=self.length/2, index=i)
 
     def make_control_node_widget(self, node):
         create_sphere_widget(self.obj, node.control_bone)

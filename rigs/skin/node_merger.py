@@ -198,6 +198,7 @@ class BaseMergeNode(GenerateCallbackHost):
         raise NotImplementedError()
 
     def get_merge_priority(self, other):
+        "Rank candidates to merge into."
         return 0
 
 
@@ -214,8 +215,11 @@ class MainMergeNode(BaseMergeNode):
         master = self.merged_master
         return [master, *master.merged]
 
-    def can_merge_into(self, other):
+    def can_merge_from(self, other):
         return True
+
+    def can_merge_into(self, other):
+        return other.can_merge_from(self)
 
     def merge_into(self, other):
         self.merged_into = other

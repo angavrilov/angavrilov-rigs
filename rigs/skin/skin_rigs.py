@@ -19,6 +19,7 @@
 # <pep8 compliant>
 
 import bpy
+import enum
 
 from mathutils import Vector, Quaternion
 from itertools import count
@@ -26,7 +27,7 @@ from itertools import count
 from rigify.utils.rig import get_rigify_type
 from rigify.utils.errors import MetarigError
 from rigify.utils.layers import ControlLayersOption
-from rigify.utils.naming import make_derived_name, get_name_base_and_sides
+from rigify.utils.naming import make_derived_name, get_name_base_and_sides, change_name_side, Side, SideZ
 from rigify.utils.bones import align_bone_orientation, align_bone_to_axis
 from rigify.utils.widgets_basic import create_cube_widget
 from rigify.utils.mechanism import MechanismUtilityMixin
@@ -36,10 +37,20 @@ from rigify.base_rig import BaseRig, LazyRigComponent, stage
 from .node_merger import MainMergeNode, QueryMergeNode
 
 
+class ControlNodeLayer(enum.IntEnum):
+    FREE         = 0
+    MIDDLE_PIVOT = 100
+    TWEAK        = 200
+
+
 class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
     merge_domain = 'ControlNetNode'
 
-    def __init__(self, rig, org, name, *, point=None, size=None, can_merge=True, needs_parent=False):
+    def __init__(
+        self, rig, org, name, *, point=None, size=None, can_merge=True,
+        needs_parent=False, needs_reparent=False,
+        layer=ControlNodeLayer.FREE, index=None,
+        ):
         assert isinstance(rig, BaseSkinChainRig)
 
         super().__init__(rig, name, point or rig.get_bone(org).head)
@@ -48,24 +59,34 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
         self.can_merge = can_merge
 
         self.name_split = get_name_base_and_sides(name)
-        self.parent_skin_rigs = rig.get_all_parent_skin_rigs()
 
         self.size = size or rig.get_bone(org).length
+        self.layer = layer
+        self.index = index
         self.rotation = None
+
         self.node_parent = None
-        self.node_needs_parent = False # always generate the parent
+        self.node_needs_parent = needs_parent
+        self.node_needs_reparent = needs_reparent
 
         self.chain_neighbor = None
 
     def can_merge_into(self, other):
-        return self.can_merge and super().can_merge_into(other)
+        return self.can_merge and self.layer <= other.layer and super().can_merge_into(other)
+
+    def get_merge_priority(self, other):
+        return 1000 - abs(self.layer - other.layer)
 
     def find_mirror_siblings(self):
         self.mirror_siblings = {}
+        self.mirror_sides_x = set()
+        self.mirror_sides_z = set()
 
         for node in self.get_merged_siblings():
             if node.name_split[0] == self.name_split[0]:
                 self.mirror_siblings[node.name_split] = node
+                self.mirror_sides_x.add(node.name_split[1])
+                self.mirror_sides_z.add(node.name_split[2])
 
         assert self.mirror_siblings[self.name_split] is self
 
@@ -78,6 +99,14 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
                 return mirror
 
         return None
+
+    def get_control_name(self):
+        # Remove sides that merged with a mirror
+        return change_name_side(
+            self.name,
+            side = Side.MIDDLE if len(self.mirror_sides_x) > 1 else None,
+            side_z = SideZ.MIDDLE if len(self.mirror_sides_z) > 1 else None,
+        )
 
     def merge_done(self):
         if not self.merged_into:
@@ -96,7 +125,7 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
         # Build the parent
         result = self.rig.build_control_node_parent(self)
 
-        for rig in reversed(self.parent_skin_rigs):
+        for rig in reversed(self.rig.get_all_parent_skin_rigs()):
             result = rig.extend_control_node_parent(result, self)
 
         # Remove duplicates
@@ -132,11 +161,14 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
         # Create parents
         self.node_parent_list = [ node.build_parent() for node in sibling_list ]
 
-        if all(parent == self.node_parent_list[0] for parent in self.node_parent_list):
-            self.node_parent_list = self.node_parent_list[0:1]
+        if all(parent == self.node_parent for parent in self.node_parent_list):
+            self.use_mix_parent = False
+            self.node_parent_list = [ self.node_parent ]
+        else:
+            self.use_mix_parent = True
 
         for child in self.merged:
-            if child.node_needs_parent:
+            if child.node_needs_parent or child.node_needs_reparent:
                 child.build_parent()
 
     @property
@@ -147,31 +179,51 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
         name = self.rig.copy_bone(self.org, name)
 
         bone = self.rig.get_bone(name)
-        bone.matrix = self.matrix
-        bone.length = self.size * scale
+        bone.matrix = self.merged_master.matrix
+        bone.length = self.merged_master.size * scale
 
         return name
 
-    def generate_bones(self):
-        self._control_bone = self.make_bone(self.name, 1)
+    def is_reparent_needed(self):
+        master = self.merged_master
 
-        if len(self.node_parent_list) > 1:
-            self.mix_parent_bone = self.make_bone(make_derived_name(self.name, 'mch', '_mix_parent'), 1/2)
+        return self.node_needs_reparent and (master.use_mix_parent or self.node_parent != master.node_parent)
+
+    def generate_bones(self):
+        self._control_bone = self.make_bone(self.get_control_name(), 1)
+
+        if self.use_mix_parent:
+            self.mix_parent_bone = self.make_bone(make_derived_name(self._control_bone, 'mch', '_mix_parent'), 1/2)
+
+        for node in self.get_merged_siblings():
+            if node.is_reparent_needed():
+                node.reparent_bone = node.make_bone(make_derived_name(node.name, 'mch', '_reparent'), 1/3)
+            elif node.node_needs_reparent:
+                node.reparent_bone = self._control_bone
 
     def parent_bones(self):
-        if len(self.node_parent_list) > 1:
+        if self.use_mix_parent:
             self.rig.set_bone_parent(self._control_bone, self.mix_parent_bone, inherit_scale='AVERAGE')
             self.rig.generator.disable_auto_parent(self.mix_parent_bone)
         else:
             self.rig.set_bone_parent(self._control_bone, self.node_parent_list[0].output_bone, inherit_scale='AVERAGE')
 
+        for node in self.get_merged_siblings():
+            if node.is_reparent_needed():
+                node.rig.set_bone_parent(node.reparent_bone, node.node_parent.output_bone, inherit_scale='AVERAGE')
+
     def rig_bones(self):
-        if len(self.node_parent_list) > 1:
+        if self.use_mix_parent:
             targets = [ parent.output_bone for parent in self.node_parent_list ]
             self.make_constraint(self.mix_parent_bone, 'ARMATURE', targets=targets, use_deform_preserve_volume=True)
 
+        for node in self.get_merged_siblings():
+            if node.is_reparent_needed():
+                self.make_constraint(node.reparent_bone, 'COPY_TRANSFORMS', self._control_bone)
+
     def generate_widgets(self):
-        self.rig.make_control_node_widget(self)
+        best = max(self.get_merged_siblings(), key=lambda n: n.layer)
+        best.rig.make_control_node_widget(best)
 
 
 class ControlBoneParentOrg:
@@ -183,6 +235,72 @@ class ControlBoneParentOrg:
 
     def __eq__(self, other):
         return isinstance(other, ControlBoneParentOrg) and self.output_bone == other.output_bone
+
+
+def _getattr_chain(descriptor):
+    if callable(descriptor):
+        return descriptor()
+
+    first, *args = descriptor
+    if callable(first):
+        return first(*args)
+
+    for item in args:
+        first = getattr(first, item)
+    return first
+
+
+class ControlBoneParentOffset(LazyRigComponent):
+    @classmethod
+    def wrap(cls, owner, parent, *constructor_args):
+        if isinstance(parent, ControlBoneParentOffset):
+            return parent
+
+        return cls(owner, parent, *constructor_args)
+
+    def __init__(self, rig, parent, node):
+        super().__init__(rig)
+        self.parent = parent
+        self.node = node
+        self.copy_local = {}
+
+    def add_copy_local_location(self, target, *, influence=1):
+        if target in self.copy_local:
+            self.copy_local[target] += influence
+        else:
+            self.copy_local[target] = influence
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, ControlBoneParentOffset) and
+            self.parent == other.parent and
+            self.copy_local == other.copy_local
+        )
+
+    @property
+    def output_bone(self):
+        return self.mch_bones[-1] if self.mch_bones else self.parent.output_bone
+
+    def generate_bones(self):
+        if self.copy_local:
+            mch_name = make_derived_name(self.node.name, 'mch', '_poffset')
+            self.mch_bones = [self.node.make_bone(mch_name, 1/4)]
+        else:
+            self.mch_bones = []
+
+    def parent_bones(self):
+        if self.mch_bones:
+            self.owner.set_bone_parent(self.mch_bones[0], self.parent.output_bone)
+            self.owner.parent_bone_chain(self.mch_bones, use_connect=False)
+
+    def rig_bones(self):
+        if self.copy_local:
+            mch = self.mch_bones[0]
+            for target, influence in self.copy_local.items():
+                self.make_constraint(
+                    mch, 'COPY_LOCATION', _getattr_chain(target), use_offset=True,
+                    target_space='OWNER_LOCAL', owner_space='LOCAL', influence=influence,
+                )
 
 
 class BaseSkinRig(BaseRig):
