@@ -34,10 +34,10 @@ from rigify.utils.mechanism import driver_var_transform
 from rigify.base_rig import stage
 
 from .skin_rigs import ControlBoneNode, ControlNodeLayer, ControlBoneParentOffset
-from .simple_chain import Rig as SimpleChainRig
+from .basic_chain import Rig as BasicChainRig
 
 
-class Rig(SimpleChainRig):
+class Rig(BasicChainRig):
     """Skin chain with extra pivots."""
 
     min_chain_length = 2
