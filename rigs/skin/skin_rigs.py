@@ -23,6 +23,8 @@ import enum
 
 from mathutils import Vector, Quaternion
 from itertools import count
+from collections import defaultdict
+from string import Template
 
 from rigify.utils.rig import get_rigify_type
 from rigify.utils.errors import MetarigError
@@ -175,11 +177,17 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
     def control_bone(self):
         return self.merged_master._control_bone
 
-    def make_bone(self, name, scale):
+    def make_bone(self, name, scale, *, orientation=None):
         name = self.rig.copy_bone(self.org, name)
 
+        if orientation is not None:
+            matrix = orientation.to_matrix().to_4x4()
+            matrix.translation = self.merged_master.point
+        else:
+            matrix = self.merged_master.matrix
+
         bone = self.rig.get_bone(name)
-        bone.matrix = self.merged_master.matrix
+        bone.matrix = matrix
         bone.length = self.merged_master.size * scale
 
         return name
@@ -237,17 +245,22 @@ class ControlBoneParentOrg:
         return isinstance(other, ControlBoneParentOrg) and self.output_bone == other.output_bone
 
 
-def _getattr_chain(descriptor):
-    if callable(descriptor):
-        return descriptor()
+class LazyRef(tuple):
+    """Hashable lazy reference to a bone. When called, evaluates (foo, 'a', 'b'...) as foo('a','b') or foo.a.b."""
+    def __new__(cls, *args):
+        return tuple.__new__(cls, tuple(args))
 
-    first, *args = descriptor
-    if callable(first):
-        return first(*args)
+    def __repr__(self):
+        return 'LazyRef' + super().__repr__()
 
-    for item in args:
-        first = getattr(first, item)
-    return first
+    def __call__(self):
+        first, *args = self
+        if callable(first):
+            return first(*args)
+
+        for item in args:
+            first = getattr(first, item)
+        return first
 
 
 class ControlBoneParentOffset(LazyRigComponent):
@@ -262,19 +275,30 @@ class ControlBoneParentOffset(LazyRigComponent):
         super().__init__(rig)
         self.parent = parent
         self.node = node
-        self.copy_local = {}
+        self.copy_local = defaultdict(float)
+        self.add_local = {}
+        self.add_orientations = {}
 
     def add_copy_local_location(self, target, *, influence=1):
-        if target in self.copy_local:
-            self.copy_local[target] += influence
-        else:
-            self.copy_local[target] = influence
+        self.copy_local[target] += influence
+
+    def add_location_driver(self, orientation, index, expression, variables):
+        assert isinstance(variables, dict)
+
+        key = tuple(round(x*10000) for x in orientation)
+
+        if key not in self.add_local:
+            self.add_orientations[key] = orientation
+            self.add_local[key] = ([], [], [])
+
+        self.add_local[key][index].append((expression, variables))
 
     def __eq__(self, other):
         return (
             isinstance(other, ControlBoneParentOffset) and
             self.parent == other.parent and
-            self.copy_local == other.copy_local
+            self.copy_local == other.copy_local and
+            self.add_local == other.add_local
         )
 
     @property
@@ -282,25 +306,70 @@ class ControlBoneParentOffset(LazyRigComponent):
         return self.mch_bones[-1] if self.mch_bones else self.parent.output_bone
 
     def generate_bones(self):
-        if self.copy_local:
+        self.mch_bones = []
+
+        if self.copy_local or self.add_local:
             mch_name = make_derived_name(self.node.name, 'mch', '_poffset')
-            self.mch_bones = [self.node.make_bone(mch_name, 1/4)]
-        else:
-            self.mch_bones = []
+
+            if self.add_local:
+                for key in self.add_local:
+                    self.mch_bones.append(self.node.make_bone(mch_name, 1/4, orientation=self.add_orientations[key]))
+            else:
+                self.mch_bones.append(self.node.make_bone(mch_name, 1/4))
 
     def parent_bones(self):
         if self.mch_bones:
             self.owner.set_bone_parent(self.mch_bones[0], self.parent.output_bone)
             self.owner.parent_bone_chain(self.mch_bones, use_connect=False)
 
+    def compile_driver(self, items):
+        variables = {}
+        expressions = []
+
+        for expr, varset in items:
+            varmap = {}
+
+            # Merge variables
+            for name, desc in varset.items():
+                # descriptors may not be hashable, so linear search
+                for vn, vdesc in variables.items():
+                    if vdesc == desc:
+                        varmap[name] = vn
+                        break
+                else:
+                    new_name = name
+                    if new_name in variables:
+                        for i in count(1):
+                            new_name = '%s_%d' % (name, i)
+                            if new_name not in variables:
+                                break
+                    variables[new_name] = desc
+                    varmap[name] = new_name
+
+            expressions.append(Template(expr).substitute(varmap))
+
+        if len(expressions) > 1:
+            final_expr = '+'.join('('+expr+')' for expr in expressions)
+        else:
+            final_expr = expressions[0]
+
+        return final_expr, variables
+
     def rig_bones(self):
         if self.copy_local:
             mch = self.mch_bones[0]
             for target, influence in self.copy_local.items():
                 self.make_constraint(
-                    mch, 'COPY_LOCATION', _getattr_chain(target), use_offset=True,
+                    mch, 'COPY_LOCATION', target, use_offset=True,
                     target_space='OWNER_LOCAL', owner_space='LOCAL', influence=influence,
                 )
+
+        if self.add_local:
+            for mch, (key, specs) in zip(self.mch_bones, self.add_local.items()):
+                for index, vals in enumerate(specs):
+                    if vals:
+                        expr, variables = self.compile_driver(vals)
+                        self.make_driver(mch, 'location', index=index, expression=expr, variables=variables)
 
 
 class BaseSkinRig(BaseRig):

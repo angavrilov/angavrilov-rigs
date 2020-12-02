@@ -33,7 +33,7 @@ from rigify.utils.mechanism import driver_var_transform
 
 from rigify.base_rig import stage
 
-from .skin_rigs import ControlBoneNode, ControlNodeLayer, ControlBoneParentOffset
+from .skin_rigs import ControlBoneNode, ControlNodeLayer, ControlBoneParentOffset, LazyRef
 from .basic_chain import Rig as BasicChainRig
 
 
@@ -97,8 +97,8 @@ class Rig(BasicChainRig):
         parent = ControlBoneParentOffset.wrap(self, parent, node)
         factor = max(0, min(1, self.get_pivot_projection(node.point)))
 
-        parent.add_copy_local_location((self.control_nodes[0], 'reparent_bone'), influence=1-factor)
-        parent.add_copy_local_location((self.control_nodes[-1], 'reparent_bone'), influence=factor)
+        parent.add_copy_local_location(LazyRef(self.control_nodes[0], 'reparent_bone'), influence=1-factor)
+        parent.add_copy_local_location(LazyRef(self.control_nodes[-1], 'reparent_bone'), influence=factor)
 
         if self.pivot_pos and node.index != self.pivot_pos:
             if node.index < self.pivot_pos:
@@ -107,7 +107,7 @@ class Rig(BasicChainRig):
                 factor = (1 - factor) / (1 - self.middle_pivot_factor)
 
             factor = 2*factor - factor**2
-            parent.add_copy_local_location((self.control_nodes[self.pivot_pos], 'reparent_bone'), influence=factor)
+            parent.add_copy_local_location(LazyRef(self.control_nodes[self.pivot_pos], 'reparent_bone'), influence=factor)
 
         return parent
 
