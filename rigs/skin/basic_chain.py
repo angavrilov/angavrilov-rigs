@@ -73,6 +73,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         super().initialize()
 
         self.bbone_segments = self.params.bbones
+        self.use_connect_mirror = self.params.skin_chain_connect_mirror
 
         orgs = self.bones.org
 
@@ -97,8 +98,8 @@ class Rig(BaseSkinChainRigWithRotationOption):
             self.make_control_node(len(orgs), orgs[-1], True),
         ]
 
-        nodes[0].chain_neigbor = nodes[1]
-        nodes[-1].chain_neigbor = nodes[-2]
+        nodes[0].chain_end_neighbor = nodes[1]
+        nodes[-1].chain_end_neighbor = nodes[-2]
 
     def make_control_node(self, i, org, is_end):
         bone = self.get_bone(org)
@@ -123,14 +124,21 @@ class Rig(BaseSkinChainRigWithRotationOption):
     ####################################################
     # B-Bone handle MCH
 
+    def get_connected_node(self, node):
+        if self.use_connect_mirror:
+            mirror = node.get_best_mirror()
+            if mirror and mirror.chain_end_neighbor and isinstance(mirror.rig, Rig):
+                if mirror.rig.use_connect_mirror:
+                    return mirror.chain_end_neighbor
+
+        return None
+
     def get_node_chain_with_mirror(self):
         nodes = self.control_nodes
-        prev_mirror_node = nodes[0].get_best_mirror()
-        next_mirror_node = nodes[-1].get_best_mirror()
         return [
-            prev_mirror_node.chain_neigbor if prev_mirror_node else None,
+            self.get_connected_node(nodes[0]),
             *nodes,
-            next_mirror_node.chain_neigbor if next_mirror_node else None,
+            self.get_connected_node(nodes[-1]),
         ]
 
     @stage.generate_bones
@@ -253,11 +261,17 @@ class Rig(BaseSkinChainRigWithRotationOption):
             description = 'Number of B-Bone segments'
         )
 
+        params.skin_chain_connect_mirror = bpy.props.BoolProperty(
+            name        = 'Connect With Mirror',
+            default     = True,
+            description = 'If an end of the chain meets its mirror, create a smooth B-Bone transition'
+        )
+
         super().add_parameters(params)
 
     @classmethod
     def parameters_ui(self, layout, params):
-        r = layout.row()
-        r.prop(params, "bbones")
+        layout.prop(params, "bbones")
+        layout.prop(params, "skin_chain_connect_mirror")
 
         super().parameters_ui(layout, params)

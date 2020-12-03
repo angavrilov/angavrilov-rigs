@@ -32,7 +32,20 @@ from rigify.base_generate import GeneratorPlugin
 
 
 class NodeMerger(GeneratorPlugin):
-    """Utility to partition nodes into groups based on their location, with epsilon."""
+    """
+    Utility that allows rigs to interact based on common points in space.
+
+    Rigs can register node objects representing locations during the
+    initialize stage, and at the end the plugin sorts them into buckets
+    based on proximity. For each such bucket a group object is created
+    and allowed to further process the nodes.
+
+    Nodes chosen by the groups as being 'final' become sub-objects of
+    the plugin and receive stage callbacks.
+
+    The domain parameter allows potentially having multiple completely
+    separate layers of nodes with different purpose.
+    """
 
     epsilon = 1e-5
 
@@ -114,7 +127,17 @@ class NodeMerger(GeneratorPlugin):
 
 
 class MergeGroup(object):
-    """Standard node group, merges nodes based on their restrictions and priorities."""
+    """
+    Standard node group, merges nodes based on certain rules and priorities.
+
+    1. Nodes are classified into main and query nodes; query nodes are not merged.
+    2. Nodes owned by the same rig cannot merge with each other.
+    3. Node can only merge into target if node.can_merge_into(target) is true.
+    4. Among multiple candidates in one rig, node.get_merge_priority(target) is used.
+    5. The largest clusters of nodes that can merge are picked until none are left.
+
+    The master nodes of the chosen clusters, plus query nodes, become 'final'.
+    """
 
     def __init__(self, nodes):
         self.nodes = nodes
@@ -203,7 +226,11 @@ class BaseMergeNode(GenerateCallbackHost):
 
 
 class MainMergeNode(BaseMergeNode):
-    """Base class of standard mergeable nodes."""
+    """
+    Base class of standard mergeable nodes. Each node can either be
+    a master of its cluster or a merged child node. Children become
+    sub-objects of their master to receive callbacks in defined order.
+    """
 
     def __init__(self, rig, name, point, *, domain=None):
         super().__init__(rig, name, point, domain=domain)
@@ -227,8 +254,13 @@ class MainMergeNode(BaseMergeNode):
     def merge_from(self, other):
         self.merged.append(other)
 
+    @property
+    def is_master_node(self):
+        return not self.merged_into
+
     def merge_done(self):
         self.merged_master = self.merged_into or self
+        self.rigify_sub_objects = self.merged
 
         for child in self.merged:
             child.merge_done()

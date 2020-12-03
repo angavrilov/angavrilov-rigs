@@ -22,6 +22,7 @@ import bpy
 
 from itertools import count, repeat
 from mathutils import Vector, Matrix
+from bl_math import clamp
 
 from rigify.utils.rig import connected_children_names
 from rigify.utils.layers import ControlLayersOption
@@ -90,15 +91,30 @@ class Rig(BasicChainRig):
         else:
             create_sphere_widget(self.obj, node.control_bone)
 
+    def apply_falloff_start(self, factor):
+        return 1 - (1 - factor) ** self.params.skin_chain_falloff_start
+
+    def apply_falloff_middle(self, factor):
+        return 1 - (1 - factor) ** self.params.skin_chain_falloff_middle
+
+    def apply_falloff_end(self, factor):
+        return 1 - (1 - factor) ** self.params.skin_chain_falloff_end
+
     def extend_control_node_parent(self, parent, node):
         if node.index in (0, self.num_orgs):
             return parent
 
         parent = ControlBoneParentOffset.wrap(self, parent, node)
-        factor = max(0, min(1, self.get_pivot_projection(node.point)))
+        factor = clamp(self.get_pivot_projection(node.point))
 
-        parent.add_copy_local_location(LazyRef(self.control_nodes[0], 'reparent_bone'), influence=1-factor)
-        parent.add_copy_local_location(LazyRef(self.control_nodes[-1], 'reparent_bone'), influence=factor)
+        parent.add_copy_local_location(
+            LazyRef(self.control_nodes[0], 'reparent_bone'),
+            influence = self.apply_falloff_start(1 - factor),
+        )
+        parent.add_copy_local_location(
+            LazyRef(self.control_nodes[-1], 'reparent_bone'),
+            influence = self.apply_falloff_end(factor),
+        )
 
         if self.pivot_pos and node.index != self.pivot_pos:
             if node.index < self.pivot_pos:
@@ -106,8 +122,10 @@ class Rig(BasicChainRig):
             else:
                 factor = (1 - factor) / (1 - self.middle_pivot_factor)
 
-            factor = 2*factor - factor**2
-            parent.add_copy_local_location(LazyRef(self.control_nodes[self.pivot_pos], 'reparent_bone'), influence=factor)
+            parent.add_copy_local_location(
+                LazyRef(self.control_nodes[self.pivot_pos], 'reparent_bone'),
+                influence = self.apply_falloff_middle(clamp(factor)),
+            )
 
         return parent
 
@@ -122,7 +140,7 @@ class Rig(BasicChainRig):
         if node.index not in (0, self.num_orgs, self.pivot_pos):
             index1 = 0
             index2 = self.num_orgs
-            factor = max(0, min(1, self.get_pivot_projection(node.point)))
+            factor = clamp(self.get_pivot_projection(node.point))
 
             if self.pivot_pos:
                 if node.index < self.pivot_pos:
@@ -148,7 +166,7 @@ class Rig(BasicChainRig):
 
             self.make_driver(
                 bone, 'rotation_euler', index=1,
-                expression='lerp(y1,y2,{})'.format(factor),
+                expression='lerp(y1,y2,{})'.format(clamp(factor)),
                 variables=variables
             )
 
@@ -165,11 +183,41 @@ class Rig(BasicChainRig):
             description='Position of the middle pivot, disabled if zero'
         )
 
+        params.skin_chain_falloff_start = bpy.props.FloatProperty(
+            name='Start Control Falloff',
+            default=1,
+            min=0,
+            description='Falloff curve power of the chain start control; higher value is wider influence',
+        )
+
+        params.skin_chain_falloff_middle = bpy.props.FloatProperty(
+            name='Middle Control Falloff',
+            default=2,
+            min=0,
+            description='Falloff curve power of the chain middle pivot control; higher value is wider influence',
+        )
+
+        params.skin_chain_falloff_end = bpy.props.FloatProperty(
+            name='End Control Falloff',
+            default=1,
+            min=0,
+            description='Falloff curve power of the chain end control; higher value is wider influence',
+        )
+
         super().add_parameters(params)
 
     @classmethod
     def parameters_ui(self, layout, params):
-        r = layout.row()
-        r.prop(params, "skin_chain_pivot_pos")
+        layout.prop(params, "skin_chain_pivot_pos")
+
+        row = layout.row(align=True)
+        row.label(text="Falloff:")
+        row.prop(params, "skin_chain_falloff_start", text="")
+
+        row2 = row.row(align=True)
+        row2.active = params.skin_chain_pivot_pos > 0
+        row2.prop(params, "skin_chain_falloff_middle", text="")
+
+        row.prop(params, "skin_chain_falloff_end", text="")
 
         super().parameters_ui(layout, params)

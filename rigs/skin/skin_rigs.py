@@ -46,10 +46,13 @@ class ControlNodeLayer(enum.IntEnum):
 
 
 class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
+    """Node representing controls of skin chain rigs."""
+
     merge_domain = 'ControlNetNode'
 
     def __init__(
-        self, rig, org, name, *, point=None, size=None, can_merge=True,
+        self, rig, org, name, *, point=None,
+        size=None, can_merge=True,
         needs_parent=False, needs_reparent=False,
         layer=ControlNodeLayer.FREE, index=None,
         ):
@@ -64,20 +67,42 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
 
         self.size = size or rig.get_bone(org).length
         self.layer = layer
-        self.index = index
         self.rotation = None
 
+        # Parent mechanism generator for this node
         self.node_parent = None
+        # Create the parent mechanism even if not master
         self.node_needs_parent = needs_parent
+        # If this node's own parent mechanism differs from master, generate a conversion bone
         self.node_needs_reparent = needs_reparent
 
-        self.chain_neighbor = None
+        # Generate the control as MCH unless merged
+        self.hide_lone_control = False
+
+        # For use by the owner rig: index in chain
+        self.index = index
+        # If this node is the end of a chain, points to the next one
+        self.chain_end_neighbor = None
 
     def can_merge_into(self, other):
-        return self.can_merge and self.layer <= other.layer and super().can_merge_into(other)
+        # Only merge up the layers (towards more mechanism)
+        return (
+            self.can_merge and
+            (self.layer <= other.layer or not other.can_merge) and
+            super().can_merge_into(other)
+        )
 
     def get_merge_priority(self, other):
+        # Prefer closest layer
         return 1000 - abs(self.layer - other.layer)
+
+    def merge_done(self):
+        if self.is_master_node:
+            self.parent_subrig_cache = []
+
+        super().merge_done()
+
+        self.find_mirror_siblings()
 
     def find_mirror_siblings(self):
         self.mirror_siblings = {}
@@ -109,14 +134,6 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
             side = Side.MIDDLE if len(self.mirror_sides_x) > 1 else None,
             side_z = SideZ.MIDDLE if len(self.mirror_sides_z) > 1 else None,
         )
-
-    def merge_done(self):
-        if not self.merged_into:
-            self.parent_subrig_cache = []
-
-        super().merge_done()
-
-        self.find_mirror_siblings()
 
     def build_parent(self):
         if self.node_parent:
@@ -151,27 +168,28 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
         return self.rotation
 
     def initialize(self):
-        sibling_list = self.mirror_siblings.values()
+        if self.is_master_node:
+            sibling_list = self.mirror_siblings.values()
 
-        # Compute orientation
-        self.rotation = sum((node.get_rotation() for node in sibling_list), Quaternion((0,0,0,0))).normalized()
-        self.size = sum(node.size for node in sibling_list) / len(sibling_list)
+            # Compute orientation
+            self.rotation = sum((node.get_rotation() for node in sibling_list), Quaternion((0,0,0,0))).normalized()
+            self.size = sum(node.size for node in sibling_list) / len(sibling_list)
 
-        self.matrix = self.rotation.to_matrix().to_4x4()
-        self.matrix.translation = self.point
+            self.matrix = self.rotation.to_matrix().to_4x4()
+            self.matrix.translation = self.point
 
-        # Create parents
-        self.node_parent_list = [ node.build_parent() for node in sibling_list ]
+            # Create parents
+            self.node_parent_list = [ node.build_parent() for node in sibling_list ]
 
-        if all(parent == self.node_parent for parent in self.node_parent_list):
-            self.use_mix_parent = False
-            self.node_parent_list = [ self.node_parent ]
-        else:
-            self.use_mix_parent = True
+            if all(parent == self.node_parent for parent in self.node_parent_list):
+                self.use_mix_parent = False
+                self.node_parent_list = [ self.node_parent ]
+            else:
+                self.use_mix_parent = True
 
-        for child in self.merged:
-            if child.node_needs_parent or child.node_needs_reparent:
-                child.build_parent()
+        # All nodes
+        if self.node_needs_parent or self.node_needs_reparent:
+            self.build_parent()
 
     @property
     def control_bone(self):
@@ -198,43 +216,55 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
         return self.node_needs_reparent and (master.use_mix_parent or self.node_parent != master.node_parent)
 
     def generate_bones(self):
-        self._control_bone = self.make_bone(self.get_control_name(), 1)
+        if self.is_master_node:
+            name = self.get_control_name()
 
-        if self.use_mix_parent:
-            self.mix_parent_bone = self.make_bone(make_derived_name(self._control_bone, 'mch', '_mix_parent'), 1/2)
+            if self.hide_lone_control and not self.merged:
+                name = make_derived_name(name, 'mch')
 
-        for node in self.get_merged_siblings():
-            if node.is_reparent_needed():
-                node.reparent_bone = node.make_bone(make_derived_name(node.name, 'mch', '_reparent'), 1/3)
-            elif node.node_needs_reparent:
-                node.reparent_bone = self._control_bone
+            self._control_bone = self.make_bone(name, 1)
+
+            if self.use_mix_parent:
+                self.mix_parent_bone = self.make_bone(make_derived_name(self._control_bone, 'mch', '_mix_parent'), 1/2)
+
+        # All nodes
+        if self.node_needs_reparent:
+            if self.is_reparent_needed():
+                self.reparent_bone = self.make_bone(make_derived_name(self.name, 'mch', '_reparent'), 1/3)
+            else:
+                self.reparent_bone = self.control_bone
 
     def parent_bones(self):
-        if self.use_mix_parent:
-            self.rig.set_bone_parent(self._control_bone, self.mix_parent_bone, inherit_scale='AVERAGE')
-            self.rig.generator.disable_auto_parent(self.mix_parent_bone)
-        else:
-            self.rig.set_bone_parent(self._control_bone, self.node_parent_list[0].output_bone, inherit_scale='AVERAGE')
+        if self.is_master_node:
+            if self.use_mix_parent:
+                self.rig.set_bone_parent(self._control_bone, self.mix_parent_bone, inherit_scale='AVERAGE')
+                self.rig.generator.disable_auto_parent(self.mix_parent_bone)
+            else:
+                self.rig.set_bone_parent(self._control_bone, self.node_parent_list[0].output_bone, inherit_scale='AVERAGE')
 
-        for node in self.get_merged_siblings():
-            if node.is_reparent_needed():
-                node.rig.set_bone_parent(node.reparent_bone, node.node_parent.output_bone, inherit_scale='AVERAGE')
+        # All nodes
+        if self.is_reparent_needed():
+            self.rig.set_bone_parent(self.reparent_bone, self.node_parent.output_bone, inherit_scale='AVERAGE')
 
     def rig_bones(self):
-        if self.use_mix_parent:
-            targets = [ parent.output_bone for parent in self.node_parent_list ]
-            self.make_constraint(self.mix_parent_bone, 'ARMATURE', targets=targets, use_deform_preserve_volume=True)
+        if self.is_master_node:
+            if self.use_mix_parent:
+                targets = [ parent.output_bone for parent in self.node_parent_list ]
+                self.make_constraint(self.mix_parent_bone, 'ARMATURE', targets=targets, use_deform_preserve_volume=True)
 
-        for node in self.get_merged_siblings():
-            if node.is_reparent_needed():
-                self.make_constraint(node.reparent_bone, 'COPY_TRANSFORMS', self._control_bone)
+        # All nodes
+        if self.is_reparent_needed():
+            self.make_constraint(self.reparent_bone, 'COPY_TRANSFORMS', self.control_bone)
 
     def generate_widgets(self):
-        best = max(self.get_merged_siblings(), key=lambda n: n.layer)
-        best.rig.make_control_node_widget(best)
+        if self.is_master_node:
+            best = min(self.get_merged_siblings(), key=lambda n: n.layer)
+            best.rig.make_control_node_widget(best)
 
 
 class ControlBoneParentOrg:
+    """Control node parent generator wrapping a single ORG bone."""
+
     def __init__(self, org):
         self.output_bone = org
 
@@ -247,6 +277,7 @@ class ControlBoneParentOrg:
 
 class LazyRef(tuple):
     """Hashable lazy reference to a bone. When called, evaluates (foo, 'a', 'b'...) as foo('a','b') or foo.a.b."""
+
     def __new__(cls, *args):
         return tuple.__new__(cls, tuple(args))
 
@@ -264,6 +295,14 @@ class LazyRef(tuple):
 
 
 class ControlBoneParentOffset(LazyRigComponent):
+    """
+    Parent mechanism generator that offsets the control's location.
+
+    Supports Copy Transforms (Local) constraints and location drivers.
+    Multiple offsets can be accumulated in the same generator, which
+    will automatically create as many bones as needed.
+    """
+
     @classmethod
     def wrap(cls, owner, parent, *constructor_args):
         if isinstance(parent, ControlBoneParentOffset):
@@ -425,6 +464,8 @@ class BaseSkinChainRig(BaseSkinRig):
 
 
 class BaseSkinChainRigWithRotationOption(BaseSkinChainRig):
+    """Skin chain rig with an option to choose which parent's orientation to use for controls."""
+
     def get_final_control_node_rotation(self):
         # Hack: read the raw value without accessing the RNA wrapper
         index = self.params.get("skin_control_rotation_index", 0)
