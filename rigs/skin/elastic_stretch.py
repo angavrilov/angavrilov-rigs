@@ -19,6 +19,7 @@
 # <pep8 compliant>
 
 import bpy
+import math
 
 from itertools import count, repeat
 from mathutils import Vector, Matrix
@@ -37,7 +38,7 @@ from .skin_rigs import BaseSkinRig, ControlBoneParentOffset, LazyRef
 
 
 class Rig(BaseSkinRig):
-    """Elastic stretch control."""
+    """Elastic deform scale/pinch brush control."""
 
     def find_org_bones(self, bone):
         return bone.name
@@ -75,7 +76,10 @@ class Rig(BaseSkinRig):
         self.copy_bone_properties(self.bones.org, self.bones.ctrl.master)
 
         # Lock Y scale since it's not used
-        self.get_bone(self.bones.ctrl.master).lock_scale[1] = True
+        bone = self.get_bone(self.bones.ctrl.master)
+        bone.lock_scale[1] = True
+        bone.lock_rotation = (True, True, True)
+        bone.lock_rotation_w = True
 
     @stage.rig_bones
     def rig_master_control(self):
@@ -105,6 +109,7 @@ class Rig(BaseSkinRig):
 
         bone['s'] = 0.0
         bone['p'] = 0.0
+        bone['g'] = 0.0
 
         variables = {
             'sx': driver_var_transform(self.obj, self.bones.ctrl.master, type='SCALE_X', space='LOCAL'),
@@ -114,27 +119,59 @@ class Rig(BaseSkinRig):
         self.make_driver(bone, quote_property('s'), expression='sx+sy-2', variables=variables)
         self.make_driver(bone, quote_property('p'), expression='sx-sy', variables=variables)
 
+        variables = {
+            'tx': driver_var_transform(self.obj, self.bones.ctrl.master, type='LOC_X', space='LOCAL'),
+            'ty': driver_var_transform(self.obj, self.bones.ctrl.master, type='LOC_Z', space='LOCAL'),
+        }
+
+        self.make_driver(bone, quote_property('g'), expression='sqrt(tx*tx+ty*ty)', variables=variables)
+
     def extend_control_node_parent(self, parent, node):
         parent = ControlBoneParentOffset.wrap(self, parent, node)
 
         pos = self.transform_space @ node.point
 
+        # Compute brush parameters
         radius = self.params.skin_elastic_scale_radius
         poissons_ratio = 0.3
 
-        mat1 = compute_scale_pinch_matrix(pos.x, pos.z, radius, poissons_ratio, 1.25)
+        mat1 = compute_scale_pinch_matrix(pos.x, pos.z, radius, poissons_ratio, EPS_MIN)
         mat2 = compute_scale_pinch_matrix(pos.x, pos.z, radius, poissons_ratio, 5)
 
-        variables = { 's': (LazyRef(self.bones, 'org'), 's'), 'p': (LazyRef(self.bones, 'org'), 'p') }
+        trf_weight1 = compute_translate_weight(pos.x, pos.z, radius, EPS_MIN)
+        trf_weight2 = compute_translate_weight(pos.x, pos.z, radius, 5)
 
-        expt = 0.8
-        coeff = 0.25 / (20 ** expt)
+        # Apply scale & pinch drivers
+        variables = {
+            's': (LazyRef(self.bones, 'org'), 's'),
+            'p': (LazyRef(self.bones, 'org'), 'p'),
+            'g': (LazyRef(self.bones, 'org'), 'g'),
+        }
 
-        expr_x = 'lerp(%f*$s+%f*$p,%f*$s+%f*$p,%f*pow(max(0,$s),%f))' % (mat1[0][0], mat1[0][1], mat2[0][0], mat2[0][1], coeff, expt)
-        expr_y = 'lerp(%f*$s+%f*$p,%f*$s+%f*$p,%f*pow(max(0,$s),%f))' % (mat1[1][0], mat1[1][1], mat2[1][0], mat2[1][1], coeff, expt)
+        # Solution for the first minimum touching the 0.1 compression plane at 10x scale
+        max_blend = 20
+        expt = 0.5765756146
+        coeff = 0.2359836090 / (max_blend ** expt)
+
+        expr_x = 'lerp(%f*$s+%f*$p,%f*$s+%f*$p,%f*pow(clamp($s,0,%d),%f))' % (
+            mat1[0][0], mat1[0][1], mat2[0][0], mat2[0][1], coeff, max_blend, expt)
+        expr_y = 'lerp(%f*$s+%f*$p,%f*$s+%f*$p,%f*pow(clamp($s,0,%d),%f))' % (
+            mat1[1][0], mat1[1][1], mat2[1][0], mat2[1][1], coeff, max_blend, expt)
 
         parent.add_location_driver(self.transform_orientation, 0, expr_x, variables)
         parent.add_location_driver(self.transform_orientation, 2, expr_y, variables)
+
+        # Add translate control for center (not a true grab brush, just falloff matching scale)
+        ctrl = LazyRef(self.bones.ctrl, 'master')
+
+        if trf_weight1 >= 1 and trf_weight2 >= 1:
+            parent.add_copy_local_location(ctrl)
+        else:
+            expr_i = 'lerp(%f,%f,%f*pow(clamp($s+2*$g,0,%d),%f))' % (
+                trf_weight1, trf_weight2, coeff, max_blend, expt)
+
+            parent.add_copy_local_location(ctrl, influence_expr=expr_i, influence_vars=variables)
+
         return parent
 
     ####################################################
@@ -142,8 +179,7 @@ class Rig(BaseSkinRig):
 
     @stage.rig_bones
     def rig_org_bone(self):
-        self.make_constraint(self.bones.org, 'COPY_LOCATION', self.bones.ctrl.master)
-        self.make_constraint(self.bones.org, 'COPY_ROTATION', self.bones.ctrl.master)
+        pass
 
     ####################################################
     # SETTINGS
@@ -162,6 +198,9 @@ class Rig(BaseSkinRig):
         r = layout.row()
         r.prop(params, "skin_elastic_scale_radius")
 
+
+# This value gives maximum scale offset at exactly radius (radius ring radially unscaled)
+EPS_MIN = 0.5*math.sqrt(3 + math.sqrt(17))
 
 def compute_scale_pinch_matrix(x, y, exact_radius, poissons_ratio, brush_radius):
     x /= exact_radius
@@ -185,3 +224,17 @@ def compute_scale_pinch_matrix(x, y, exact_radius, poissons_ratio, brush_radius)
         ( common_scale * x, common_pinch * x * (v2_32e2_x2y2v - x2) ),
         ( common_scale * y, common_pinch * -y * (v2_32e2_x2y2v - y2) ),
     ))
+
+def compute_translate_weight(x, y, exact_radius, brush_radius):
+    x /= exact_radius
+    y /= exact_radius
+
+    r2 = x*x + y*y
+    r = math.sqrt(r2)
+
+    if r <= 1:
+        return 1
+
+    e2 = brush_radius * brush_radius
+
+    return r * (e2 + 1) * (e2 + 1) * (2*e2 + r2) / (2*e2 + 1) / (e2 + r2) / (e2 + r2)

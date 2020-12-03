@@ -275,21 +275,33 @@ class ControlBoneParentOrg:
         return isinstance(other, ControlBoneParentOrg) and self.output_bone == other.output_bone
 
 
-class LazyRef(tuple):
+class LazyRef:
     """Hashable lazy reference to a bone. When called, evaluates (foo, 'a', 'b'...) as foo('a','b') or foo.a.b."""
 
-    def __new__(cls, *args):
-        return tuple.__new__(cls, tuple(args))
+    def __init__(self, first, *args):
+        self.first = first
+        self.args = tuple(args)
+        self.first_hashable = first.__hash__ is not None
 
     def __repr__(self):
-        return 'LazyRef' + super().__repr__()
+        return 'LazyRef{}'.format(tuple(self.first, *self.args))
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, LazyRef) and
+            (self.first == other.first if self.first_hashable else self.first is other.first) and
+            self.args == other.args
+        )
+
+    def __hash__(self):
+        return (hash(self.first) if self.first_hashable else hash(id(self.first))) ^ hash(self.args)
 
     def __call__(self):
-        first, *args = self
+        first = self.first
         if callable(first):
-            return first(*args)
+            return first(*self.args)
 
-        for item in args:
+        for item in self.args:
             first = getattr(first, item)
         return first
 
@@ -314,12 +326,18 @@ class ControlBoneParentOffset(LazyRigComponent):
         super().__init__(rig)
         self.parent = parent
         self.node = node
-        self.copy_local = defaultdict(float)
+        self.copy_local = {}
         self.add_local = {}
         self.add_orientations = {}
 
-    def add_copy_local_location(self, target, *, influence=1):
-        self.copy_local[target] += influence
+    def add_copy_local_location(self, target, *, influence=1, influence_expr=None, influence_vars={}):
+        if target not in self.copy_local:
+            self.copy_local[target] = [0, []]
+
+        if influence_expr:
+            self.copy_local[target][1].append((influence_expr, influence_vars))
+        else:
+            self.copy_local[target][0] += influence
 
     def add_location_driver(self, orientation, index, expression, variables):
         assert isinstance(variables, dict)
@@ -366,10 +384,23 @@ class ControlBoneParentOffset(LazyRigComponent):
         expressions = []
 
         for expr, varset in items:
+            template = Template(expr)
             varmap = {}
+
+            try:
+                template.substitute({k:'' for k in varset})
+            except Exception as e:
+                self.owner.raise_error('Invalid driver expression: {}\nError: {}', expr, e)
 
             # Merge variables
             for name, desc in varset.items():
+                # Check if the variable is used.
+                try:
+                    template.substitute({k:'' for k in varset if k != name})
+                    continue
+                except KeyError:
+                    pass
+
                 # descriptors may not be hashable, so linear search
                 for vn, vdesc in variables.items():
                     if vdesc == desc:
@@ -385,7 +416,7 @@ class ControlBoneParentOffset(LazyRigComponent):
                     variables[new_name] = desc
                     varmap[name] = new_name
 
-            expressions.append(Template(expr).substitute(varmap))
+            expressions.append(template.substitute(varmap))
 
         if len(expressions) > 1:
             final_expr = '+'.join('('+expr+')' for expr in expressions)
@@ -397,11 +428,18 @@ class ControlBoneParentOffset(LazyRigComponent):
     def rig_bones(self):
         if self.copy_local:
             mch = self.mch_bones[0]
-            for target, influence in self.copy_local.items():
-                self.make_constraint(
+            for target, (influence, drivers) in self.copy_local.items():
+                con = self.make_constraint(
                     mch, 'COPY_LOCATION', target, use_offset=True,
                     target_space='OWNER_LOCAL', owner_space='LOCAL', influence=influence,
                 )
+
+                if drivers:
+                    if influence > 0:
+                        drivers.append((str(influence), {}))
+
+                    expr, variables = self.compile_driver(drivers)
+                    self.make_driver(con, 'influence', expression=expr, variables=variables)
 
         if self.add_local:
             for mch, (key, specs) in zip(self.mch_bones, self.add_local.items()):
