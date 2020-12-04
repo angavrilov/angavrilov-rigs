@@ -64,6 +64,10 @@ class Rig(BasicChainRig):
         if self.pivot_pos:
             self.middle_pivot_factor = self.get_pivot_projection(self.get_bone(orgs[self.pivot_pos]).head)
 
+        bone_lengths = [ self.get_bone(org).length for org in orgs ]
+
+        self.chain_lengths = [ sum(bone_lengths[0:i]) for i in range(len(orgs)+1) ]
+
     def get_pivot_projection(self, pos):
         return (pos - self.pivot_base).dot(self.pivot_vector) / self.pivot_length
 
@@ -133,22 +137,28 @@ class Rig(BasicChainRig):
     ####################################################
     # B-Bone handle MCH
 
-    def rig_mch_handle_bone(self, i, mch, prev_node, node, next_node):
-        super().rig_mch_handle_bone(i, mch, prev_node, node, next_node)
+    def rig_mch_handle_user(self, i, mch, prev_node, node, next_node):
+        super().rig_mch_handle_user(i, mch, prev_node, node, next_node)
 
         # Interpolate chain twist between pivots
         if node.index not in (0, self.num_orgs, self.pivot_pos):
             index1 = 0
             index2 = self.num_orgs
-            factor = clamp(self.get_pivot_projection(node.point))
+
+            len_cur = self.chain_lengths[node.index]
+            len_end = self.chain_lengths[-1]
 
             if self.pivot_pos:
+                len_pivot = self.chain_lengths[self.pivot_pos]
+
                 if node.index < self.pivot_pos:
-                    factor = factor / self.middle_pivot_factor
+                    factor = len_cur / len_pivot
                     index2 = self.pivot_pos
                 else:
-                    factor = 1 - (1 - factor) / (1 - self.middle_pivot_factor)
+                    factor = (len_cur - len_pivot) / (len_end - len_pivot)
                     index1 = self.pivot_pos
+            else:
+                factor = len_cur / len_end
 
             variables = {
                 'y1': driver_var_transform(

@@ -177,7 +177,24 @@ class MergeGroup(object):
         while pending:
             # Find largest group
             nodes = [n for n in main_nodes if n in pending]
-            best = max(nodes, key=lambda n: len(merge_table[n]))
+            max_len = max(len(merge_table[n]) for n in nodes)
+
+            nodes = [n for n in nodes if len(merge_table[n]) == max_len]
+
+            # If a tie, try to resolve using comparison
+            if len(nodes) > 1:
+                weighted_nodes = [
+                    (n, sum(
+                        1 if n.is_better_cluster(n2) and not n2.is_better_cluster(n) else 0
+                        for n2 in nodes
+                    ))
+                    for n in nodes
+                ]
+                max_weight = max(wn[1] for wn in weighted_nodes)
+                nodes = [ wn[0] for wn in weighted_nodes if wn[1] == max_weight ]
+
+            # Final tie breaker is the name
+            best = min(nodes, key=lambda n: n.name)
             child_set = merge_table[best]
 
             # Link children
@@ -212,6 +229,7 @@ class BaseMergeNode(GenerateCallbackHost):
 
     def __init__(self, rig, name, point, *, domain=None):
         self.rig = rig
+        self.obj = rig.obj
         self.name = name
         self.point = Vector(point)
 
@@ -242,6 +260,10 @@ class MainMergeNode(BaseMergeNode):
         master = self.merged_master
         return [master, *master.merged]
 
+    def is_better_cluster(self, other):
+        "Compare with the other node to choose between cluster masters."
+        return False
+
     def can_merge_from(self, other):
         return True
 
@@ -260,7 +282,7 @@ class MainMergeNode(BaseMergeNode):
 
     def merge_done(self):
         self.merged_master = self.merged_into or self
-        self.rigify_sub_objects = self.merged
+        self.rigify_sub_objects = list(self.merged)
 
         for child in self.merged:
             child.merge_done()
@@ -268,6 +290,8 @@ class MainMergeNode(BaseMergeNode):
 
 class QueryMergeNode(BaseMergeNode):
     """Base class for special nodes used only to query which nodes are at a certain location."""
+
+    is_master_node = False
 
     def initialize(self):
         self.matched_nodes = [n for n in self.group.final_nodes if self.can_merge_into(n)]

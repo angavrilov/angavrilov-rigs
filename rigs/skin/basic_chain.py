@@ -73,6 +73,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         super().initialize()
 
         self.bbone_segments = self.params.bbones
+        self.use_bbones = self.bbone_segments > 1
         self.use_connect_mirror = self.params.skin_chain_connect_mirror
 
         orgs = self.bones.org
@@ -116,6 +117,8 @@ class Rig(BaseSkinChainRigWithRotationOption):
     # mch:
     #   handles[]
     #     B-Bone handles.
+    #   handles_pre[]
+    #     B-Bone handle parents.
     # deform[]:
     #   Deformation B-Bones.
     #
@@ -123,6 +126,9 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
     ####################################################
     # B-Bone handle MCH
+
+    # Generate two layers of handle bones - used by other rigs
+    use_pre_handles = False
 
     def get_connected_node(self, node):
         if self.use_connect_mirror:
@@ -143,9 +149,13 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
     @stage.generate_bones
     def make_mch_handle_bones(self):
-        chain = self.get_node_chain_with_mirror()
+        if self.use_bbones:
+            chain = self.get_node_chain_with_mirror()
 
-        self.bones.mch.handles = map_list(self.make_mch_handle_bone, count(0), chain, chain[1:], chain[2:])
+            self.bones.mch.handles = map_list(self.make_mch_handle_bone, count(0), chain, chain[1:], chain[2:])
+
+            if self.use_pre_handles:
+                self.bones.mch.handles_pre = map_list(self.make_mch_pre_handle_bone, count(0), self.bones.mch.handles)
 
     def make_mch_handle_bone(self, i, prev_node, node, next_node):
         name = self.copy_bone(node.org, make_derived_name(node.name, 'mch', '_handle'))
@@ -155,42 +165,59 @@ class Rig(BaseSkinChainRigWithRotationOption):
         haxis = (hend.point - hstart.point).normalized()
 
         bone = self.get_bone(name)
-        bone.head = hstart.point
-        bone.tail = hstart.point + haxis * self.length * 3/4
+        bone.tail = bone.head + haxis * self.length * 3/4
 
         align_bone_roll(self.obj, name, node.org)
         return name
 
+    def make_mch_pre_handle_bone(self, i, handle):
+        return self.copy_bone(handle, make_derived_name(handle, 'mch', '_pre'))
+
     @stage.parent_bones
     def parent_mch_handle_bones(self):
-        for mch in self.bones.mch.handles:
-            self.set_bone_parent(mch, self.rig_parent_bone, inherit_scale='AVERAGE')
+        if self.use_bbones:
+            mch = self.bones.mch
+
+            if self.use_pre_handles:
+                for pre, handle in zip(mch.handles_pre, mch.handles):
+                    self.set_bone_parent(pre, self.rig_parent_bone, inherit_scale='AVERAGE')
+                    self.set_bone_parent(handle, pre, inherit_scale='ALIGNED')
+            else:
+                for handle in mch.handles:
+                    self.set_bone_parent(handle, self.rig_parent_bone, inherit_scale='AVERAGE')
 
     @stage.rig_bones
     def rig_mch_handle_bones(self):
-        mch = self.bones.mch
-        chain = self.get_node_chain_with_mirror()
+        if self.use_bbones:
+            mch = self.bones.mch
+            chain = self.get_node_chain_with_mirror()
 
-        for args in zip(count(0), mch.handles, chain, chain[1:], chain[2:]):
-            self.rig_mch_handle_bone(*args)
+            pre_handles = mch.handles_pre if self.use_pre_handles else mch.handles
 
-    def rig_mch_handle_bone(self, i, mch, prev_node, node, next_node):
+            for args in zip(count(0), pre_handles, chain, chain[1:], chain[2:]):
+                self.rig_mch_handle_auto(*args)
+
+            for args in zip(count(0), mch.handles, chain, chain[1:], chain[2:]):
+                self.rig_mch_handle_user(*args)
+
+    def rig_mch_handle_auto(self, i, mch, prev_node, node, next_node):
         hstart = prev_node or node
         hend = next_node or node
 
         # Emulate auto handle
-        self.make_constraint(mch, 'COPY_LOCATION', hstart.control_bone)
-        self.make_constraint(mch, 'DAMPED_TRACK', hend.control_bone)
+        self.make_constraint(mch, 'COPY_LOCATION', hstart.control_bone, name='locate_prev')
+        self.make_constraint(mch, 'DAMPED_TRACK', hend.control_bone, name='track_next')
 
+    def rig_mch_handle_user(self, i, mch, prev_node, node, next_node):
         # Apply user rotation and scale
         self.make_constraint(
-            mch, 'COPY_TRANSFORMS', node.control_bone,
+            mch, 'COPY_TRANSFORMS', node.control_bone, name='copy_user',
             target_space='OWNER_LOCAL', owner_space='LOCAL',
             mix_mode='BEFORE_FULL',
         )
 
         # Remove any shear created by previous step
-        self.make_constraint(mch, 'LIMIT_ROTATION')
+        self.make_constraint(mch, 'LIMIT_ROTATION', name='remove_shear')
 
 
     ##############################
@@ -198,7 +225,10 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
     @stage.parent_bones
     def parent_org_chain(self):
-        pass
+        orgs = self.bones.org
+        self.set_bone_parent(orgs[0], self.rig_parent_bone, inherit_scale='AVERAGE')
+        self.parent_bone_chain(orgs, use_connect=True, inherit_scale='AVERAGE')
+
 
     @stage.rig_bones
     def rig_org_chain(self):
@@ -231,14 +261,15 @@ class Rig(BaseSkinChainRigWithRotationOption):
         self.set_bone_parent(deform[0], self.rig_parent_bone, inherit_scale='AVERAGE')
         self.parent_bone_chain(deform, use_connect=True, inherit_scale='AVERAGE')
 
-        handles = self.bones.mch.handles
+        if self.use_bbones:
+            handles = self.bones.mch.handles
 
-        for name, start_handle, end_handle in zip(deform, handles, handles[1:]):
-            bone = self.get_bone(name)
-            bone.bbone_handle_type_start = 'TANGENT'
-            bone.bbone_custom_handle_start = self.get_bone(start_handle)
-            bone.bbone_handle_type_end = 'TANGENT'
-            bone.bbone_custom_handle_end = self.get_bone(end_handle)
+            for name, start_handle, end_handle in zip(deform, handles, handles[1:]):
+                bone = self.get_bone(name)
+                bone.bbone_handle_type_start = 'TANGENT'
+                bone.bbone_custom_handle_start = self.get_bone(start_handle)
+                bone.bbone_handle_type_end = 'TANGENT'
+                bone.bbone_custom_handle_end = self.get_bone(end_handle)
 
     @stage.rig_bones
     def rig_deform_chain(self):
@@ -272,6 +303,9 @@ class Rig(BaseSkinChainRigWithRotationOption):
     @classmethod
     def parameters_ui(self, layout, params):
         layout.prop(params, "bbones")
-        layout.prop(params, "skin_chain_connect_mirror")
+
+        col = layout.column()
+        col.active = params.bbones > 1
+        col.prop(params, "skin_chain_connect_mirror")
 
         super().parameters_ui(layout, params)

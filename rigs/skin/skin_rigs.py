@@ -33,6 +33,7 @@ from rigify.utils.naming import make_derived_name, get_name_base_and_sides, chan
 from rigify.utils.bones import align_bone_orientation, align_bone_to_axis
 from rigify.utils.widgets_basic import create_cube_widget
 from rigify.utils.mechanism import MechanismUtilityMixin
+from rigify.utils.misc import force_lazy
 
 from rigify.base_rig import BaseRig, LazyRigComponent, stage
 
@@ -43,6 +44,14 @@ class ControlNodeLayer(enum.IntEnum):
     FREE         = 0
     MIDDLE_PIVOT = 100
     TWEAK        = 200
+
+
+def _get_parent_rigs(rig):
+    result = []
+    while rig:
+        result.append(rig)
+        rig = rig.rigify_parent
+    return result
 
 
 class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
@@ -64,6 +73,9 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
         self.can_merge = can_merge
 
         self.name_split = get_name_base_and_sides(name)
+
+        self.name_merged = None
+        self.name_merged_split = None
 
         self.size = size or rig.get_bone(org).length
         self.layer = layer
@@ -96,6 +108,29 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
         # Prefer closest layer
         return 1000 - abs(self.layer - other.layer)
 
+    def is_better_cluster(self, other):
+        # Prefer bones that have strictly more parents
+        my_parents = list(reversed(_get_parent_rigs(self.rig.rigify_parent)))
+        other_parents = list(reversed(_get_parent_rigs(other.rig.rigify_parent)))
+
+        if len(my_parents) > len(other_parents) and my_parents[0:len(other_parents)] == other_parents:
+            return True
+        if len(other_parents) > len(my_parents) and other_parents[0:len(other_parents)] == my_parents:
+            return False
+
+        # Prefer middle chains
+        side_x_my, side_z_my = map(abs, self.name_split[1:])
+        side_x_other, side_z_other = map(abs, other.name_split[1:])
+
+        if ((side_x_my < side_x_other and side_z_my <= side_z_other) or
+            (side_x_my <= side_x_other and side_z_my < side_z_other)):
+            return True
+        if ((side_x_my > side_x_other and side_z_my >= side_z_other) or
+            (side_x_my >= side_x_other and side_z_my > side_z_other)):
+            return False
+
+        return False
+
     def merge_done(self):
         if self.is_master_node:
             self.parent_subrig_cache = []
@@ -117,6 +152,13 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
 
         assert self.mirror_siblings[self.name_split] is self
 
+        # Remove sides that merged with a mirror from the name
+        side_x = Side.MIDDLE if len(self.mirror_sides_x) > 1 else self.name_split[1]
+        side_z = SideZ.MIDDLE if len(self.mirror_sides_z) > 1 else self.name_split[2]
+
+        self.name_merged = change_name_side(self.name, side=side_x, side_z=side_z)
+        self.name_merged_split = (self.name_split[0], side_x, side_z)
+
     def get_best_mirror(self):
         base, side, sidez = self.name_split
 
@@ -127,28 +169,18 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
 
         return None
 
-    def get_control_name(self):
-        # Remove sides that merged with a mirror
-        return change_name_side(
-            self.name,
-            side = Side.MIDDLE if len(self.mirror_sides_x) > 1 else None,
-            side_z = SideZ.MIDDLE if len(self.mirror_sides_z) > 1 else None,
-        )
-
-    def build_parent(self):
-        if self.node_parent:
-            return self.node_parent
-
-        assert self.rig.generator.stage == 'initialize'
+    @classmethod
+    def build_parent_for_node(cls, node, cache=None):
+        assert node.rig.generator.stage == 'initialize'
 
         # Build the parent
-        result = self.rig.build_control_node_parent(self)
+        result = node.rig.build_control_node_parent(node)
 
-        for rig in reversed(self.rig.get_all_parent_skin_rigs()):
-            result = rig.extend_control_node_parent(result, self)
+        for rig in reversed(node.rig.get_all_parent_skin_rigs()):
+            result = rig.extend_control_node_parent(result, node)
 
         # Remove duplicates
-        cache = self.merged_master.parent_subrig_cache
+        cache = cache or node.merged_master.parent_subrig_cache
 
         for previous in cache:
             if previous == result:
@@ -158,8 +190,13 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
             result.enable_component()
             cache.append(result)
 
-        self.node_parent = result
         return result
+
+    def build_parent(self):
+        if not self.node_parent:
+            self.node_parent = self.build_parent_for_node(self)
+
+        return self.node_parent
 
     def get_rotation(self):
         if self.rotation is None:
@@ -217,7 +254,7 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
 
     def generate_bones(self):
         if self.is_master_node:
-            name = self.get_control_name()
+            name = self.name_merged
 
             if self.hide_lone_control and not self.merged:
                 name = make_derived_name(name, 'mch')
@@ -251,6 +288,9 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin):
             if self.use_mix_parent:
                 targets = [ parent.output_bone for parent in self.node_parent_list ]
                 self.make_constraint(self.mix_parent_bone, 'ARMATURE', targets=targets, use_deform_preserve_volume=True)
+
+            for rig in reversed(self.rig.get_all_parent_skin_rigs()):
+                rig.extend_control_node_rig(self)
 
         # All nodes
         if self.is_reparent_needed():
@@ -332,10 +372,12 @@ class ControlBoneParentOffset(LazyRigComponent):
 
     def add_copy_local_location(self, target, *, influence=1, influence_expr=None, influence_vars={}):
         if target not in self.copy_local:
-            self.copy_local[target] = [0, []]
+            self.copy_local[target] = [0, [], []]
 
         if influence_expr:
             self.copy_local[target][1].append((influence_expr, influence_vars))
+        elif callable(influence):
+            self.copy_local[target][2].append(influence)
         else:
             self.copy_local[target][0] += influence
 
@@ -428,7 +470,9 @@ class ControlBoneParentOffset(LazyRigComponent):
     def rig_bones(self):
         if self.copy_local:
             mch = self.mch_bones[0]
-            for target, (influence, drivers) in self.copy_local.items():
+            for target, (influence, drivers, lazyinf) in self.copy_local.items():
+                influence += sum(map(force_lazy, lazyinf))
+
                 con = self.make_constraint(
                     mch, 'COPY_LOCATION', target, use_offset=True,
                     target_space='OWNER_LOCAL', owner_space='LOCAL', influence=influence,
@@ -477,6 +521,9 @@ class BaseSkinRig(BaseRig):
 
     def extend_control_node_parent(self, parent, node):
         return parent
+
+    def extend_control_node_rig(self, node):
+        pass
 
     def get_control_node_rotation(self):
         return self.get_bone(self.base_bone).bone.matrix_local.to_quaternion()
