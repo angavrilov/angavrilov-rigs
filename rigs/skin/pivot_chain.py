@@ -155,13 +155,15 @@ class Rig(BasicChainRig):
             else:
                 factor = len_cur / len_end
 
+            handles = self.get_all_mch_handles()
+
             variables = {
                 'y1': driver_var_transform(
-                    self.obj, self.bones.mch.handles[index1], type='ROT_Y',
+                    self.obj, handles[index1], type='ROT_Y',
                     space='LOCAL', rotation_mode='SWING_TWIST_Y'
                 ),
                 'y2': driver_var_transform(
-                    self.obj, self.bones.mch.handles[index2], type='ROT_Y',
+                    self.obj, handles[index2], type='ROT_Y',
                     space='LOCAL', rotation_mode='SWING_TWIST_Y'
                 ),
             }

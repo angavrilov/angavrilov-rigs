@@ -49,6 +49,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         self.bbone_segments = self.params.bbones
         self.use_bbones = self.bbone_segments > 1
         self.use_connect_mirror = self.params.skin_chain_connect_mirror
+        self.use_connect_ends = self.params.skin_chain_connect_ends
 
         orgs = self.bones.org
 
@@ -109,17 +110,45 @@ class Rig(BaseSkinChainRigWithRotationOption):
             mirror = node.get_best_mirror()
             if mirror and mirror.chain_end_neighbor and isinstance(mirror.rig, Rig):
                 if mirror.rig.use_connect_mirror:
-                    return mirror.chain_end_neighbor
+                    return mirror, mirror.chain_end_neighbor
 
-        return None
+        if self.use_connect_ends:
+            starts = []
+            ends = []
+
+            for sibling in node.get_merged_siblings():
+                if isinstance(sibling.rig, Rig) and sibling.chain_end_neighbor and sibling.rig.use_connect_ends:
+                    if sibling.index == 0:
+                        starts.append(sibling)
+                    else:
+                        ends.append(sibling)
+
+            if len(starts) == 1 and len(ends) == 1:
+                assert node == starts[0] or node == ends[0]
+                link = starts[0] if node == ends[0] else ends[0]
+                return link, link.chain_end_neighbor
+
+        return None, None
 
     def get_node_chain_with_mirror(self):
         nodes = self.control_nodes
-        return [
-            self.get_connected_node(nodes[0]),
-            *nodes,
-            self.get_connected_node(nodes[-1]),
-        ]
+        prev_link, prev_node = self.get_connected_node(nodes[0])
+        next_link, next_node = self.get_connected_node(nodes[-1])
+
+        # Optimize connect next by sharing last handle mch
+        self.next_chain_rig = None
+
+        if next_link and next_link.index == 0:
+            self.next_chain_rig = next_link.rig
+            return [ prev_node, *nodes ]
+
+        return [ prev_node, *nodes, next_node ]
+
+    def get_all_mch_handles(self):
+        if self.next_chain_rig:
+            return self.bones.mch.handles + [ self.next_chain_rig.bones.mch.handles[0] ]
+        else:
+            return self.bones.mch.handles
 
     @stage.generate_bones
     def make_mch_handle_bones(self):
@@ -236,7 +265,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         self.parent_bone_chain(deform, use_connect=True, inherit_scale='AVERAGE')
 
         if self.use_bbones:
-            handles = self.bones.mch.handles
+            handles = self.get_all_mch_handles()
 
             for name, start_handle, end_handle in zip(deform, handles, handles[1:]):
                 bone = self.get_bone(name)
@@ -269,7 +298,13 @@ class Rig(BaseSkinChainRigWithRotationOption):
         params.skin_chain_connect_mirror = bpy.props.BoolProperty(
             name        = 'Connect With Mirror',
             default     = True,
-            description = 'If an end of the chain meets its mirror, create a smooth B-Bone transition'
+            description = 'Create a smooth B-Bone transition if an end of the chain meets its mirror'
+        )
+
+        params.skin_chain_connect_ends = bpy.props.BoolProperty(
+            name        = 'Connect Matching Ends',
+            default     = False,
+            description = 'Create a smooth B-Bone transition if an end of the chain meets another chain going in the same direction'
         )
 
         super().add_parameters(params)
@@ -281,6 +316,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         col = layout.column()
         col.active = params.bbones > 1
         col.prop(params, "skin_chain_connect_mirror")
+        col.prop(params, "skin_chain_connect_ends")
 
         super().parameters_ui(layout, params)
 
