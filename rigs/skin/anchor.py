@@ -43,9 +43,6 @@ class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
 
         self.make_deform = self.params.make_extra_deform
 
-    def get_control_node_rotation(self):
-        return self.get_bone(self.base_bone).bone.matrix_local.to_quaternion()
-
 
     ####################################################
     # CONTROL NODES

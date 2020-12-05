@@ -65,7 +65,7 @@ class Rig(BaseSkinRig, RelinkConstraintsMixin):
                 needs_reparent=self.params.skin_glue_tail_reparent,
             )
 
-    def build_control_node_parent(self, node):
+    def build_own_control_node_parent(self, node):
         return self.build_control_node_parent_next(node)
 
 

@@ -55,6 +55,12 @@ class Rig(BaseSkinRig):
     def get_control_node_rotation(self):
         return self.transform_orientation
 
+    def build_control_node_parent(self, node, parent_bone):
+        return self.build_control_node_parent_next(node)
+
+    def get_child_chain_parent(self, rig, parent_bone):
+        return self.get_child_chain_parent_next(rig)
+
     ####################################################
     # BONES
     #

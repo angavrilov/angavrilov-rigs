@@ -184,7 +184,7 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
         assert self.rig.generator.stage == 'initialize'
 
         # Build the parent
-        result = node.rig.build_control_node_parent(node)
+        result = node.rig.build_own_control_node_parent(node)
 
         for rig in reversed(node.rig.get_all_parent_skin_rigs()):
             result = rig.extend_control_node_parent(result, node)
@@ -425,13 +425,17 @@ class ControlBoneParentOrg:
     """Control node parent generator wrapping a single ORG bone."""
 
     def __init__(self, org):
-        self.output_bone = org
+        self._output_bone = org
+
+    @property
+    def output_bone(self):
+        return force_lazy(self._output_bone)
 
     def enable_component(self):
         pass
 
     def __eq__(self, other):
-        return isinstance(other, ControlBoneParentOrg) and self.output_bone == other.output_bone
+        return isinstance(other, ControlBoneParentOrg) and self._output_bone == other._output_bone
 
 
 class LazyRef:
@@ -635,14 +639,24 @@ class BaseSkinRig(BaseRig):
             current = current.get_parent_skin_rig()
         return items
 
+    def get_child_chain_parent_next(self, rig):
+        "Delegate parenting of the child chain to the parent rig."
+        if isinstance(self.rigify_parent, BaseSkinRig):
+            return self.rigify_parent.get_child_chain_parent(rig, self.rig_parent_bone)
+        else:
+            return self.rig_parent_bone
+
+    def get_child_chain_parent(self, rig, parent_bone):
+        return parent_bone
+
     def build_control_node_parent_next(self, node):
         "Delegate parenting of the control node to the parent rig."
         if isinstance(self.rigify_parent, BaseSkinRig):
-            return self.rigify_parent.build_control_node_parent_rec(node, self.rig_parent_bone)
+            return self.rigify_parent.build_control_node_parent(node, self.rig_parent_bone)
         else:
             return ControlBoneParentOrg(self.rig_parent_bone)
 
-    def build_control_node_parent_rec(self, node, parent_bone):
+    def build_control_node_parent(self, node, parent_bone):
         "Called when a child rig delegates control node parenting."
         return ControlBoneParentOrg(parent_bone)
 
@@ -661,12 +675,12 @@ class BaseSkinChainRig(BaseSkinRig):
 
     chain_priority = 0
 
-    def build_control_node_parent(self, node):
+    def parent_bones(self):
+        self.rig_parent_bone = self.get_child_chain_parent_next(self)
+
+    def build_own_control_node_parent(self, node):
         "Called to build the primary parent of nodes owned by this rig."
         return self.build_control_node_parent_next(node)
-
-    def get_control_node_rotation(self):
-        return self.get_bone(self.rig_parent_bone).bone.matrix_local.to_quaternion()
 
     def get_final_control_node_rotation(self):
         return self.get_control_node_rotation()
