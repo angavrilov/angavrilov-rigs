@@ -35,34 +35,6 @@ from rigify.base_rig import stage
 from .skin_rigs import BaseSkinChainRigWithRotationOption, ControlBoneNode
 
 
-def compute_chain_orientation(obj, bone_names):
-    """
-    Compute the orientation matrix with x axis perpendicular
-    to the primary plane in which the bones lie.
-    """
-    pb = obj.pose.bones
-    first_bone = pb[bone_names[0]]
-    last_bone = pb[bone_names[-1]]
-
-    y_axis = last_bone.tail - first_bone.head
-
-    if y_axis.length < 1e-4:
-        y_axis = (last_bone.head - first_bone.tail).normalized()
-    else:
-        y_axis.normalize()
-
-    x_axis = first_bone.y_axis.normalized().cross(y_axis)
-
-    if x_axis.length < 1e-4:
-        z_axis = first_bone.x_axis.cross(y_axis).normalized()
-
-        return Matrix((y_axis.cross(z_axis), y_axis, z_axis)).transposed()
-    else:
-        x_axis.normalize()
-
-        return Matrix((x_axis, y_axis, x_axis.cross(y_axis))).transposed()
-
-
 class Rig(BaseSkinChainRigWithRotationOption):
     """Skin chain with completely independent control nodes."""
 
@@ -71,6 +43,8 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
     def initialize(self):
         super().initialize()
+
+        self.chain_priority = self.params.skin_chain_priority
 
         self.bbone_segments = self.params.bbones
         self.use_bbones = self.bbone_segments > 1
@@ -106,7 +80,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         bone = self.get_bone(org)
         name = make_derived_name(org, 'ctrl', '_end' if is_end else '')
         pos = bone.tail if is_end else bone.head
-        return ControlBoneNode(self, org, name, point=pos, size=self.length/2, index=i)
+        return ControlBoneNode(self, org, name, point=pos, size=self.length/3, index=i)
 
     def make_control_node_widget(self, node):
         create_sphere_widget(self.obj, node.control_bone)
@@ -309,3 +283,33 @@ class Rig(BaseSkinChainRigWithRotationOption):
         col.prop(params, "skin_chain_connect_mirror")
 
         super().parameters_ui(layout, params)
+
+        layout.prop(params, "skin_chain_priority")
+
+
+def compute_chain_orientation(obj, bone_names):
+    """
+    Compute the orientation matrix with x axis perpendicular
+    to the primary plane in which the bones lie.
+    """
+    pb = obj.pose.bones
+    first_bone = pb[bone_names[0]]
+    last_bone = pb[bone_names[-1]]
+
+    y_axis = last_bone.tail - first_bone.head
+
+    if y_axis.length < 1e-4:
+        y_axis = (last_bone.head - first_bone.tail).normalized()
+    else:
+        y_axis.normalize()
+
+    x_axis = first_bone.y_axis.normalized().cross(y_axis)
+
+    if x_axis.length < 1e-4:
+        z_axis = first_bone.x_axis.cross(y_axis).normalized()
+
+        return Matrix((y_axis.cross(z_axis), y_axis, z_axis)).transposed()
+    else:
+        x_axis.normalize()
+
+        return Matrix((x_axis, y_axis, x_axis.cross(y_axis))).transposed()

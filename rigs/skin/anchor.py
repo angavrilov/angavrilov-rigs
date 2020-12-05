@@ -25,11 +25,15 @@ from rigify.utils.widgets_basic import create_cube_widget
 
 from rigify.base_rig import stage
 
-from .skin_rigs import BaseSkinChainRigWithRotationOption, ControlBoneNode
+from .skin_rigs import BaseSkinChainRigWithRotationOption, ControlBoneNode, ControlNodeIcon
+
+from rigify.rigs.basic.raw_copy import RelinkConstraintsMixin
 
 
-class Rig(BaseSkinChainRigWithRotationOption):
+class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
     """Custom skin control node."""
+
+    chain_priority = 20
 
     def find_org_bones(self, bone):
         return bone.name
@@ -37,7 +41,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
     def initialize(self):
         super().initialize()
 
-        self.make_deform = self.params.make_deform
+        self.make_deform = self.params.make_extra_deform
 
     def get_control_node_rotation(self):
         return self.get_bone(self.base_bone).bone.matrix_local.to_quaternion()
@@ -51,12 +55,23 @@ class Rig(BaseSkinChainRigWithRotationOption):
         org = self.bones.org
         name = make_derived_name(org, 'ctrl')
 
-        self.control_node = node = ControlBoneNode(self, org, name, can_merge=False)
+        self.control_node = node = ControlBoneNode(self, org, name, icon=ControlNodeIcon.FREE)
 
         node.hide_lone_control = self.params.skin_anchor_hide
 
-    def make_control_node_widget(self, node):
-        create_cube_widget(self.obj, node.control_bone)
+    def extend_control_node_rig(self, node):
+        if node.rig == self:
+            self.copy_bone_properties(self.bones.org, node.control_bone)
+
+            self.relink_bone_constraints(self.bones.org)
+
+            # Move constraints to the control
+            org_bone = self.get_bone(self.bones.org)
+            ctl_bone = self.get_bone(node.control_bone)
+
+            for con in list(org_bone.constraints):
+                ctl_bone.constraints.copy(con)
+                org_bone.constraints.remove(con)
 
 
     ##############################
@@ -86,10 +101,10 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
     @classmethod
     def add_parameters(self, params):
-        params.make_deform = bpy.props.BoolProperty(
-            name        = "Deform",
-            default     = True,
-            description = "Create a deform bone for the copy"
+        params.make_extra_deform = bpy.props.BoolProperty(
+            name        = "Extra Deform",
+            default     = False,
+            description = "Create an optional deform bone"
         )
 
         params.skin_anchor_hide = bpy.props.BoolProperty(
@@ -98,11 +113,14 @@ class Rig(BaseSkinChainRigWithRotationOption):
             description = 'Hide the control unless merged with another one'
         )
 
+        self.add_relink_constraints_params(params)
+
         super().add_parameters(params)
 
     @classmethod
     def parameters_ui(self, layout, params):
-        layout.prop(params, "make_deform")
-        layout.prop(params, "skin_anchor_hide")
+        layout.prop(params, "make_extra_deform")
+        #layout.prop(params, "skin_anchor_hide")
+        layout.prop(params, "relink_constraints")
 
         super().parameters_ui(layout, params)

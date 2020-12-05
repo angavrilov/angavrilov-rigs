@@ -28,13 +28,12 @@ from rigify.utils.rig import connected_children_names
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.naming import make_derived_name
 from rigify.utils.bones import align_bone_orientation, align_bone_to_axis, align_bone_roll
-from rigify.utils.widgets_basic import create_cube_widget, create_sphere_widget
 from rigify.utils.misc import map_list
 from rigify.utils.mechanism import driver_var_transform
 
 from rigify.base_rig import stage
 
-from .skin_rigs import ControlBoneNode, ControlNodeLayer, ControlBoneParentOffset, LazyRef
+from .skin_rigs import ControlBoneNode, ControlNodeLayer, ControlNodeIcon, ControlBoneParentOffset, LazyRef
 from .basic_chain import Rig as BasicChainRig
 
 
@@ -79,21 +78,17 @@ class Rig(BasicChainRig):
 
         if i == 0 or i == self.num_orgs:
             node.layer = ControlNodeLayer.FREE
-            node.size *= 1.5
+            node.icon = ControlNodeIcon.FREE
             node.node_needs_reparent = True
         elif i == self.pivot_pos:
             node.layer = ControlNodeLayer.MIDDLE_PIVOT
+            node.icon = ControlNodeIcon.MIDDLE_PIVOT
             node.node_needs_reparent = True
         else:
             node.layer = ControlNodeLayer.TWEAK
+            node.icon = ControlNodeIcon.TWEAK
 
         return node
-
-    def make_control_node_widget(self, node):
-        if node.index in (0, self.num_orgs, self.pivot_pos):
-            create_cube_widget(self.obj, node.control_bone)
-        else:
-            create_sphere_widget(self.obj, node.control_bone)
 
     def apply_falloff_start(self, factor):
         return 1 - (1 - factor) ** self.params.skin_chain_falloff_start
@@ -105,7 +100,7 @@ class Rig(BasicChainRig):
         return 1 - (1 - factor) ** self.params.skin_chain_falloff_end
 
     def extend_control_node_parent(self, parent, node):
-        if node.index in (0, self.num_orgs):
+        if node.rig != self or node.index in (0, self.num_orgs):
             return parent
 
         parent = ControlBoneParentOffset.wrap(self, parent, node)

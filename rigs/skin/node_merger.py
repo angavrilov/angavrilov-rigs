@@ -63,6 +63,7 @@ class NodeMerger(GeneratorPlugin):
 
     def register_node(self, node):
         assert not self.frozen
+        node.generator_plugin = self
         self.nodes.append(node)
 
     def initialize(self):
@@ -167,7 +168,8 @@ class MergeGroup(object):
             for rig, tgt_nodes in rig_table.items():
                 if rig is not node.rig:
                     nodes = [n for n in tgt_nodes if node.can_merge_into(n)]
-                    merge_table[max(nodes, key=node.get_merge_priority)].add(node)
+                    if nodes:
+                        merge_table[max(nodes, key=node.get_merge_priority)].add(node)
 
         # Output groups starting with largest
         self.final_nodes = []
@@ -217,6 +219,9 @@ class MergeGroup(object):
             for children in merge_table.values():
                 children &= pending
 
+        for node in self.query_nodes:
+            node.merge_done()
+
         final_nodes += self.query_nodes
 
 
@@ -234,6 +239,9 @@ class BaseMergeNode(GenerateCallbackHost):
         self.point = Vector(point)
 
         self.merger(rig.generator, domain or self.merge_domain).register_node(self)
+
+    def register_new_bone(self, new_name, old_name=None):
+        self.generator_plugin.register_new_bone(new_name, old_name)
 
     def can_merge_into(self, other):
         raise NotImplementedError()
@@ -292,7 +300,11 @@ class QueryMergeNode(BaseMergeNode):
     """Base class for special nodes used only to query which nodes are at a certain location."""
 
     is_master_node = False
+    require_match = True
 
-    def initialize(self):
+    def merge_done(self):
         self.matched_nodes = [n for n in self.group.final_nodes if self.can_merge_into(n)]
         self.matched_nodes.sort(key=self.get_merge_priority, reverse=True)
+
+        if self.require_match and not self.matched_nodes:
+            self.rig.raise_error('Could not match control node for {}', self.name)

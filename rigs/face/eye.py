@@ -169,7 +169,7 @@ class Rig(BaseSkinRig):
     @stage.generate_bones
     def make_master_control(self):
         org = self.bones.org
-        name = self.copy_bone(org, make_derived_name(org, 'ctrl'), parent=True)
+        name = self.copy_bone(org, make_derived_name(org, 'ctrl', '_master'), parent=True)
         put_bone(self.obj, name, self.get_master_control_position())
         self.bones.ctrl.master = name
 
@@ -220,7 +220,7 @@ class Rig(BaseSkinRig):
 
         self.make_constraint(mch.master, 'DAMPED_TRACK', ctrl.target)
 
-        con = self.make_constraint(mch.track, 'COPY_LOCATION', mch.master, head_tail=1)
+        con = self.make_constraint(mch.track, 'COPY_LOCATION', mch.master, head_tail=1, name='lid_follow')
         self.make_driver(con, 'influence', variables=[(ctrl.target, 'lid_follow')])
 
 
@@ -229,7 +229,7 @@ class Rig(BaseSkinRig):
 
     @stage.parent_bones
     def parent_org_chain(self):
-        self.set_bone_parent(self.bones.org, self.bones.ctrl.master)
+        self.set_bone_parent(self.bones.org, self.bones.ctrl.master, inherit_scale='FULL')
 
 
     ####################################################
@@ -455,6 +455,9 @@ def widget_generator(generate_func):
     """
     Decorator that encapsulates a call to create_widget, and only requires
     the actual function to fill the provided vertex and edge lists.
+
+    Accepts parameters of create_widget, plus any keyword arguments the
+    wrapped function has.
     """
     @functools.wraps(generate_func)
     def wrapper(rig, bone_name, bone_transform_name=None, **kwargs):
@@ -482,20 +485,21 @@ def generate_circle_geometry(verts, edges, center, radius, *, matrix=None, angle
     angle_range: pair of angles to generate an arc of the circle
     steps: number of edges to cover the whole circle (reduced for arcs)
     """
+    assert steps >= 3
+
     base = len(verts)
     start = 0
     delta = math.pi * 2 / steps
 
     if angle_range:
         start, end = angle_range
-        if start >= end:
-            return False
+        if start == end:
+            steps = 1
+        else:
+            steps = max(3, math.ceil(abs(end - start) / delta) + 1)
+            delta = (end - start) / (steps - 1)
 
-        steps = max(3, math.ceil((end - start) / delta) + 1)
-        delta = (end - start) / (steps - 1)
-    else:
-        start = 0
-        end = math.pi * 2
+    center = center.to_3d() # allow 2d center
 
     for i in range(steps):
         angle = start + delta * i
@@ -511,8 +515,6 @@ def generate_circle_geometry(verts, edges, center, radius, *, matrix=None, angle
     if not angle_range:
         edges.append((base + steps - 1, base))
 
-    return True
-
 @widget_generator
 def create_eye_widget(verts, edges, *, size=1):
     generate_circle_geometry(verts, edges, Vector((0,0,0)), size/2)
@@ -523,6 +525,16 @@ def generate_circle_hull_geometry(verts, edges, points, radius, gap, *, matrix=N
     it, with each point being circumscribed with a circle arc of given radius,
     and keeping the given distance gap from the lines connecting the circles.
     """
+    assert radius >= gap
+
+    if len(points) <= 1:
+        if points:
+            generate_circle_geometry(
+                verts, edges, points[0], radius,
+                matrix=matrix, steps=steps
+            )
+        return
+
     base = len(verts)
     points_ex = [points[-1], *points, points[0]]
     agap = math.asin(gap / radius)
@@ -546,8 +558,7 @@ def generate_circle_hull_geometry(verts, edges, points, radius, gap, *, matrix=N
                 edges.append((len(verts)-1, len(verts)))
 
             generate_circle_geometry(
-                verts, edges, pcur.to_3d(), radius,
-                angle_range=(aprev, anext),
+                verts, edges, pcur, radius, angle_range=(aprev, anext),
                 matrix=matrix, steps=steps
             )
 
