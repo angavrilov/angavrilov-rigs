@@ -92,8 +92,8 @@ class Rig(BaseSkinChainRigWithRotationOption):
     # mch:
     #   handles[]
     #     B-Bone handles.
-    #   handles_pre[]
-    #     B-Bone handle parents.
+    #   handles_pre[] (optional, may be copy of handles[])
+    #     Separate mechanism bones that emulates Auto handle behavior.
     # deform[]:
     #   Deformation B-Bones.
     #
@@ -150,15 +150,24 @@ class Rig(BaseSkinChainRigWithRotationOption):
         else:
             return self.bones.mch.handles
 
+    def get_all_mch_handles_pre(self):
+        if self.next_chain_rig:
+            return self.bones.mch.handles_pre + [ self.next_chain_rig.bones.mch.handles_pre[0] ]
+        else:
+            return self.bones.mch.handles_pre
+
     @stage.generate_bones
     def make_mch_handle_bones(self):
         if self.use_bbones:
+            mch = self.bones.mch
             chain = self.get_node_chain_with_mirror()
 
-            self.bones.mch.handles = map_list(self.make_mch_handle_bone, count(0), chain, chain[1:], chain[2:])
+            mch.handles = map_list(self.make_mch_handle_bone, count(0), chain, chain[1:], chain[2:])
 
             if self.use_pre_handles:
-                self.bones.mch.handles_pre = map_list(self.make_mch_pre_handle_bone, count(0), self.bones.mch.handles)
+                mch.handles_pre = map_list(self.make_mch_pre_handle_bone, count(0), mch.handles)
+            else:
+                mch.handles_pre = mch.handles
 
     def make_mch_handle_bone(self, i, prev_node, node, next_node):
         name = self.copy_bone(node.org, make_derived_name(node.name, 'mch', '_handle'))
@@ -182,12 +191,11 @@ class Rig(BaseSkinChainRigWithRotationOption):
             mch = self.bones.mch
 
             if self.use_pre_handles:
-                for pre, handle in zip(mch.handles_pre, mch.handles):
+                for pre in mch.handles_pre:
                     self.set_bone_parent(pre, self.rig_parent_bone, inherit_scale='AVERAGE')
-                    self.set_bone_parent(handle, pre, inherit_scale='ALIGNED')
-            else:
-                for handle in mch.handles:
-                    self.set_bone_parent(handle, self.rig_parent_bone, inherit_scale='AVERAGE')
+
+            for handle in mch.handles:
+                self.set_bone_parent(handle, self.rig_parent_bone, inherit_scale='AVERAGE')
 
     @stage.rig_bones
     def rig_mch_handle_bones(self):
@@ -195,12 +203,10 @@ class Rig(BaseSkinChainRigWithRotationOption):
             mch = self.bones.mch
             chain = self.get_node_chain_with_mirror()
 
-            pre_handles = mch.handles_pre if self.use_pre_handles else mch.handles
-
-            for args in zip(count(0), pre_handles, chain, chain[1:], chain[2:]):
+            for args in zip(count(0), mch.handles_pre, chain, chain[1:], chain[2:]):
                 self.rig_mch_handle_auto(*args)
 
-            for args in zip(count(0), mch.handles, chain, chain[1:], chain[2:]):
+            for args in zip(count(0), mch.handles, chain, chain[1:], chain[2:], mch.handles_pre):
                 self.rig_mch_handle_user(*args)
 
     def rig_mch_handle_auto(self, i, mch, prev_node, node, next_node):
@@ -211,7 +217,13 @@ class Rig(BaseSkinChainRigWithRotationOption):
         self.make_constraint(mch, 'COPY_LOCATION', hstart.control_bone, name='locate_prev')
         self.make_constraint(mch, 'DAMPED_TRACK', hend.control_bone, name='track_next')
 
-    def rig_mch_handle_user(self, i, mch, prev_node, node, next_node):
+    def rig_mch_handle_user(self, i, mch, prev_node, node, next_node, pre):
+        if pre != mch:
+            self.make_constraint(
+                mch, 'COPY_TRANSFORMS', pre, name='copy_pre',
+                space='LOCAL', mix_mode='BEFORE_FULL',
+            )
+
         # Apply user rotation and scale
         self.make_constraint(
             mch, 'COPY_TRANSFORMS', node.control_bone, name='copy_user',

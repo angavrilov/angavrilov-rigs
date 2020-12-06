@@ -55,20 +55,25 @@ class Rig(BasicChainRig):
         if not (0 <= self.pivot_pos < len(orgs)):
             self.raise_error('Invalid middle pivot position: {}', self.pivot_pos)
 
-        self.pivot_base = self.get_bone(orgs[0]).head
-        self.pivot_vector = self.get_bone(orgs[-1]).tail - self.pivot_base
-        self.pivot_length = self.pivot_vector.length
-        self.pivot_vector.normalize()
-
-        if self.pivot_pos:
-            self.middle_pivot_factor = self.get_pivot_projection(self.get_bone(orgs[self.pivot_pos]).head)
-
         bone_lengths = [ self.get_bone(org).length for org in orgs ]
 
         self.chain_lengths = [ sum(bone_lengths[0:i]) for i in range(len(orgs)+1) ]
 
-    def get_pivot_projection(self, pos):
-        return (pos - self.pivot_base).dot(self.pivot_vector) / self.pivot_length
+        if not self.params.skin_chain_falloff_length:
+            self.pivot_base = self.get_bone(orgs[0]).head
+            self.pivot_vector = self.get_bone(orgs[-1]).tail - self.pivot_base
+            self.pivot_length = self.pivot_vector.length
+            self.pivot_vector.normalize()
+
+        if self.pivot_pos:
+            pivot_point = self.get_bone(orgs[self.pivot_pos]).head
+            self.middle_pivot_factor = self.get_pivot_projection(pivot_point, self.pivot_pos)
+
+    def get_pivot_projection(self, pos, index):
+        if self.params.skin_chain_falloff_length:
+            return self.chain_lengths[index] / self.chain_lengths[-1]
+        else:
+            return clamp((pos - self.pivot_base).dot(self.pivot_vector) / self.pivot_length)
 
     ####################################################
     # CONTROL NODES
@@ -90,21 +95,37 @@ class Rig(BasicChainRig):
 
         return node
 
+    def apply_falloff_curve(self, factor, idx):
+        weight = self.params.skin_chain_falloff[idx]
+
+        if self.params.skin_chain_falloff_spherical[idx]:
+            print(idx, weight, factor)
+            # circular falloff
+            if weight >= 0:
+                p = 2 ** weight
+                return (1 - (1 - factor) ** p) ** (1/p)
+            else:
+                p = 2 ** -weight
+                return 1 - (1 - factor ** p) ** (1/p)
+        else:
+            # parabolic falloff
+            return 1 - (1 - factor) ** (2 ** weight)
+
     def apply_falloff_start(self, factor):
-        return 1 - (1 - factor) ** self.params.skin_chain_falloff_start
+        return self.apply_falloff_curve(factor, 0)
 
     def apply_falloff_middle(self, factor):
-        return 1 - (1 - factor) ** self.params.skin_chain_falloff_middle
+        return self.apply_falloff_curve(factor, 1)
 
     def apply_falloff_end(self, factor):
-        return 1 - (1 - factor) ** self.params.skin_chain_falloff_end
+        return self.apply_falloff_curve(factor, 2)
 
     def extend_control_node_parent(self, parent, node):
         if node.rig != self or node.index in (0, self.num_orgs):
             return parent
 
         parent = ControlBoneParentOffset.wrap(self, parent, node)
-        factor = clamp(self.get_pivot_projection(node.point))
+        factor = self.get_pivot_projection(node.point, node.index)
 
         parent.add_copy_local_location(
             LazyRef(self.control_nodes[0], 'reparent_bone'),
@@ -132,8 +153,8 @@ class Rig(BasicChainRig):
     ####################################################
     # B-Bone handle MCH
 
-    def rig_mch_handle_user(self, i, mch, prev_node, node, next_node):
-        super().rig_mch_handle_user(i, mch, prev_node, node, next_node)
+    def rig_mch_handle_user(self, i, mch, prev_node, node, next_node, pre):
+        super().rig_mch_handle_user(i, mch, prev_node, node, next_node, pre)
 
         # Interpolate chain twist between pivots
         if node.index not in (0, self.num_orgs, self.pivot_pos):
@@ -156,6 +177,7 @@ class Rig(BasicChainRig):
                 factor = len_cur / len_end
 
             handles = self.get_all_mch_handles()
+            handles_pre = self.get_all_mch_handles_pre()
 
             variables = {
                 'y1': driver_var_transform(
@@ -168,12 +190,30 @@ class Rig(BasicChainRig):
                 ),
             }
 
+            if handles_pre[index1] != handles[index1]:
+                variables['p1'] = driver_var_transform(
+                    self.obj, handles_pre[index1], type='ROT_Y',
+                    space='LOCAL', rotation_mode='SWING_TWIST_Y'
+                )
+                expr1 = 'y1-p1'
+            else:
+                expr1 = 'y1'
+
+            if handles_pre[index2] != handles[index2]:
+                variables['p2'] = driver_var_transform(
+                    self.obj, handles_pre[index2], type='ROT_Y',
+                    space='LOCAL', rotation_mode='SWING_TWIST_Y'
+                )
+                expr2 = 'y2-p2'
+            else:
+                expr2 = 'y2'
+
             bone = self.get_bone(mch)
             bone.rotation_mode = 'YXZ'
 
             self.make_driver(
                 bone, 'rotation_euler', index=1,
-                expression='lerp(y1,y2,{})'.format(clamp(factor)),
+                expression='lerp({},{},{})'.format(expr1, expr2, clamp(factor)),
                 variables=variables
             )
 
@@ -190,25 +230,25 @@ class Rig(BasicChainRig):
             description='Position of the middle pivot, disabled if zero'
         )
 
-        params.skin_chain_falloff_start = bpy.props.FloatProperty(
-            name='Start Control Falloff',
-            default=1,
-            min=0,
-            description='Falloff curve power of the chain start control; higher value is wider influence',
+        params.skin_chain_falloff_spherical = bpy.props.BoolVectorProperty(
+            size=3,
+            name='Spherical Falloff',
+            default=(False, False, False),
+            description='Falloff curve tries to form a circle at +1 instead of a parabola',
         )
 
-        params.skin_chain_falloff_middle = bpy.props.FloatProperty(
-            name='Middle Control Falloff',
-            default=2,
-            min=0,
-            description='Falloff curve power of the chain middle pivot control; higher value is wider influence',
+        params.skin_chain_falloff = bpy.props.FloatVectorProperty(
+            size=3,
+            name='Control Falloff',
+            default=(0.0,1.0,0.0),
+            soft_min=-2, soft_max=2,
+            description='Falloff curve coefficient - 0 is linear, and higher value is wider influence',
         )
 
-        params.skin_chain_falloff_end = bpy.props.FloatProperty(
-            name='End Control Falloff',
-            default=1,
-            min=0,
-            description='Falloff curve power of the chain end control; higher value is wider influence',
+        params.skin_chain_falloff_length = bpy.props.BoolProperty(
+            name='Falloff Along Chain Curve',
+            default=False,
+            description='Falloff is computed along the curve of the chain, instead of projecting on the axis connecting the start and end points',
         )
 
         super().add_parameters(params)
@@ -219,12 +259,12 @@ class Rig(BasicChainRig):
 
         row = layout.row(align=True)
         row.label(text="Falloff:")
-        row.prop(params, "skin_chain_falloff_start", text="")
+        for i in range(3):
+            row2 = row.row(align=True)
+            row2.active = i != 1 or params.skin_chain_pivot_pos > 0
+            row2.prop(params, "skin_chain_falloff", text="", index=i)
+            row2.prop(params, "skin_chain_falloff_spherical", text="", icon='SPHERECURVE', index=i)
 
-        row2 = row.row(align=True)
-        row2.active = params.skin_chain_pivot_pos > 0
-        row2.prop(params, "skin_chain_falloff_middle", text="")
-
-        row.prop(params, "skin_chain_falloff_end", text="")
+        layout.prop(params, "skin_chain_falloff_length")
 
         super().parameters_ui(layout, params)
