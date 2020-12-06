@@ -93,8 +93,8 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
         # If this node's own parent mechanism differs from master, generate a conversion bone
         self.node_needs_reparent = needs_reparent
 
-        # Generate the control as MCH unless merged
-        self.hide_lone_control = False
+        # Generate the control as a MCH bone to hide it from the user
+        self.hide_control = False
 
         # For use by the owner rig: index in chain
         self.index = index
@@ -286,7 +286,7 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
             # Make control bone
             name = self.name_merged
 
-            if self.hide_lone_control and not self.merged:
+            if self.hide_control:
                 name = make_derived_name(name, 'mch')
 
             self._control_bone = self.make_bone(name, 1)
@@ -598,6 +598,7 @@ class BaseSkinRig(BaseRig):
             return self.rig_parent_bone
 
     def get_child_chain_parent(self, rig, parent_bone):
+        # May return LazyRef if necessary
         return parent_bone
 
     def build_control_node_parent_next(self, node):
@@ -609,7 +610,7 @@ class BaseSkinRig(BaseRig):
 
     def build_control_node_parent(self, node, parent_bone):
         "Called when a child rig delegates control node parenting."
-        return ControlBoneParentOrg(parent_bone)
+        return ControlBoneParentOrg(self.get_child_chain_parent(node.rig, parent_bone))
 
     def extend_control_node_parent(self, parent, node):
         return parent
@@ -627,7 +628,7 @@ class BaseSkinChainRig(BaseSkinRig):
     chain_priority = 0
 
     def parent_bones(self):
-        self.rig_parent_bone = self.get_child_chain_parent_next(self)
+        self.rig_parent_bone = force_lazy(self.get_child_chain_parent_next(self))
 
     def build_own_control_node_parent(self, node):
         "Called to build the primary parent of nodes owned by this rig."

@@ -51,25 +51,21 @@ class Rig(BaseSkinRig):
     ####################################################
     # Control nodes
 
-    def get_child_chain_parent(self, rig, parent_bone):
+    def get_parent_for_name(self, name, parent_bone):
         if parent_bone == self.base_bone:
-            side = get_name_side_z(rig.base_bone)
+            side = get_name_side_z(name)
             if side == SideZ.TOP:
-                return self.bones.mch.top
+                return LazyRef(self.bones.mch, 'top')
             if side == SideZ.BOTTOM:
-                return self.bones.mch.bottom
+                return LazyRef(self.bones.mch, 'bottom')
 
         return parent_bone
 
-    def build_control_node_parent(self, node, parent_bone):
-        if parent_bone == self.base_bone:
-            side = node.name_split[2]
-            if side == SideZ.TOP:
-                return ControlBoneParentOrg(LazyRef(self.bones.mch, 'top'))
-            if side == SideZ.BOTTOM:
-                return ControlBoneParentOrg(LazyRef(self.bones.mch, 'bottom'))
+    def get_child_chain_parent(self, rig, parent_bone):
+        return self.get_parent_for_name(rig.base_bone, parent_bone)
 
-        return ControlBoneParentOrg(parent_bone)
+    def build_control_node_parent(self, node, parent_bone):
+        return ControlBoneParentOrg(self.get_parent_for_name(node.name, parent_bone))
 
 
     ####################################################

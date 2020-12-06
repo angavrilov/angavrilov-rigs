@@ -157,7 +157,7 @@ class Rig(BasicChainRig):
         super().rig_mch_handle_user(i, mch, prev_node, node, next_node, pre)
 
         # Interpolate chain twist between pivots
-        if node.index not in (0, self.num_orgs, self.pivot_pos):
+        if node.index not in (0, self.num_orgs, self.pivot_pos) and self.params.skin_chain_falloff_twist:
             index1 = 0
             index2 = self.num_orgs
 
@@ -251,20 +251,30 @@ class Rig(BasicChainRig):
             description='Falloff is computed along the curve of the chain, instead of projecting on the axis connecting the start and end points',
         )
 
+        params.skin_chain_falloff_twist = bpy.props.BoolProperty(
+            name='Propagate Twist',
+            default=True,
+            description='Propagate twist from pivot controls throughout the chain',
+        )
+
         super().add_parameters(params)
 
     @classmethod
     def parameters_ui(self, layout, params):
         layout.prop(params, "skin_chain_pivot_pos")
 
-        row = layout.row(align=True)
+        col = layout.column(align=True)
+
+        row = col.row(align=True)
         row.label(text="Falloff:")
+
         for i in range(3):
             row2 = row.row(align=True)
             row2.active = i != 1 or params.skin_chain_pivot_pos > 0
             row2.prop(params, "skin_chain_falloff", text="", index=i)
             row2.prop(params, "skin_chain_falloff_spherical", text="", icon='SPHERECURVE', index=i)
 
-        layout.prop(params, "skin_chain_falloff_length")
+        col.prop(params, "skin_chain_falloff_length")
+        col.prop(params, "skin_chain_falloff_twist")
 
         super().parameters_ui(layout, params)

@@ -54,7 +54,7 @@ class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
 
         self.control_node = node = ControlBoneNode(self, org, name, icon=ControlNodeIcon.FREE)
 
-        node.hide_lone_control = self.params.skin_anchor_hide
+        node.hide_control = self.params.skin_anchor_hide
 
     def extend_control_node_rig(self, node):
         if node.rig == self:
@@ -105,9 +105,9 @@ class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
         )
 
         params.skin_anchor_hide = bpy.props.BoolProperty(
-            name        = 'Hide Unless Merged',
+            name        = 'Suppress Control',
             default     = False,
-            description = 'Hide the control unless merged with another one'
+            description = 'Make the control bone a mechanism bone invisible to the user and only affected by constraints'
         )
 
         self.add_relink_constraints_params(params)
@@ -116,8 +116,8 @@ class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
 
     @classmethod
     def parameters_ui(self, layout, params):
-        layout.prop(params, "make_extra_deform")
-        #layout.prop(params, "skin_anchor_hide")
+        layout.prop(params, "make_extra_deform", text='Generate Deform Bone')
+        layout.prop(params, "skin_anchor_hide")
         layout.prop(params, "relink_constraints")
 
         super().parameters_ui(layout, params)
