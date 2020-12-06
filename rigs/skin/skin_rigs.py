@@ -344,81 +344,32 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
                 best.rig.make_control_node_widget(best)
 
 
-class BaseControlQueryNode(QueryMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
+class ControlQueryNode(QueryMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
     """Node representing controls of skin chain rigs."""
 
     merge_domain = 'ControlNetNode'
 
-    def __init__(self, rig, org, *, name=None, point=None):
+    def __init__(self, rig, org, *, name=None, point=None, find_highest_layer=False):
         assert isinstance(rig, BaseSkinRig)
 
         super().__init__(rig, name or org, point or rig.get_bone(org).head)
 
         self.org = org
+        self.find_highest_layer = find_highest_layer
 
     def can_merge_into(self, other):
         return True
 
     def get_merge_priority(self, other):
-        return other.layer
+        return other.layer if self.find_highest_layer else -other.layer
 
     @property
     def merged_master(self):
         return self.matched_nodes[0]
 
-
-class ControlQueryNode(BaseControlQueryNode):
-    """Finds the lowest layer control at the specified location"""
-
-    def get_merge_priority(self, other):
-        return -other.layer
-
     @property
     def control_bone(self):
         return self.merged_master.control_bone
-
-
-class PositionQueryNode(BaseControlQueryNode):
-    """Finds the position of the highest layer control at the specified location"""
-
-    def __init__(self, rig, org, *, point=None, needs_reparent=False, rig_org=False):
-        super().__init__(rig, org, point=point)
-
-        self.needs_reparent = needs_reparent
-        self.rig_org = rig_org
-
-    @property
-    def output_bone(self):
-        if self.rig_org:
-            return self.org
-        elif self.needs_reparent:
-            return self.merged_master.get_reparent_bone(self.node_parent)
-        else:
-            return self.merged_master.control_bone
-
-    def initialize(self):
-        if self.needs_reparent:
-            self.node_parent = self.merged_master.build_parent_for_node(self)
-
-            if not self.rig_org:
-                self.merged_master.request_reparent(self.node_parent)
-
-    def parent_bones(self):
-        if self.rig_org:
-            if self.needs_reparent:
-                parent = self.node_parent.output_bone
-            else:
-                parent = self.get_bone_parent(self.merged_master.control_bone)
-
-            self.set_bone_parent(self.org, parent, inherit_scale='AVERAGE')
-
-    def apply_bones(self):
-        if self.rig_org:
-            self.get_bone(self.org).matrix = self.merged_master.matrix
-
-    def rig_bones(self):
-        if self.rig_org:
-            self.make_constraint(self.org, 'COPY_TRANSFORMS', self.merged_master.control_bone)
 
 
 class ControlBoneParentOrg:
