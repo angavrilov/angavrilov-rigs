@@ -21,7 +21,7 @@
 import bpy
 
 from itertools import count, repeat
-from mathutils import Vector, Matrix
+from mathutils import Vector, Matrix, Quaternion
 
 from rigify.utils.rig import connected_children_names
 from rigify.utils.layers import ControlLayersOption
@@ -32,7 +32,7 @@ from rigify.utils.misc import map_list
 
 from rigify.base_rig import stage
 
-from .skin_rigs import BaseSkinChainRigWithRotationOption, ControlBoneNode
+from .skin_rigs import BaseSkinChainRigWithRotationOption, ControlBoneNode, get_bone_quaternion
 
 
 class Rig(BaseSkinChainRigWithRotationOption):
@@ -55,10 +55,13 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
         self.num_orgs = len(orgs)
         self.length = sum([self.get_bone(b).length for b in orgs]) / len(orgs)
-        self.chain_rot = compute_chain_orientation(self.obj, orgs).to_quaternion()
 
-    def get_control_node_rotation(self):
-        return self.chain_rot
+    def get_control_node_rotation(self, node):
+        orgs = self.bones.org
+        bones = orgs[max(0,node.index-1):node.index+1]
+        quats = [ get_bone_quaternion(self.obj, name) for name in bones ]
+
+        return sum(quats, Quaternion((0,0,0,0))).normalized()
 
     ####################################################
     # CONTROL NODES
@@ -334,30 +337,3 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
         layout.prop(params, "skin_chain_priority")
 
-
-def compute_chain_orientation(obj, bone_names):
-    """
-    Compute the orientation matrix with x axis perpendicular
-    to the primary plane in which the bones lie.
-    """
-    pb = obj.pose.bones
-    first_bone = pb[bone_names[0]]
-    last_bone = pb[bone_names[-1]]
-
-    y_axis = last_bone.tail - first_bone.head
-
-    if y_axis.length < 1e-4:
-        y_axis = (last_bone.head - first_bone.tail).normalized()
-    else:
-        y_axis.normalize()
-
-    x_axis = first_bone.y_axis.normalized().cross(y_axis)
-
-    if x_axis.length < 1e-4:
-        z_axis = first_bone.x_axis.cross(y_axis).normalized()
-
-        return Matrix((y_axis.cross(z_axis), y_axis, z_axis)).transposed()
-    else:
-        x_axis.normalize()
-
-        return Matrix((x_axis, y_axis, x_axis.cross(y_axis))).transposed()

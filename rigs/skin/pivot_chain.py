@@ -99,7 +99,6 @@ class Rig(BasicChainRig):
         weight = self.params.skin_chain_falloff[idx]
 
         if self.params.skin_chain_falloff_spherical[idx]:
-            print(idx, weight, factor)
             # circular falloff
             if weight >= 0:
                 p = 2 ** weight

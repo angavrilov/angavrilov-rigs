@@ -52,9 +52,6 @@ class Rig(BaseSkinRig):
         self.transform_orientation = matrix.to_quaternion()
         self.transform_space = matrix.inverted()
 
-    def get_control_node_rotation(self):
-        return self.transform_orientation
-
     def build_control_node_parent(self, node, parent_bone):
         return self.build_control_node_parent_next(node)
 

@@ -29,7 +29,7 @@ from string import Template
 from rigify.utils.rig import get_rigify_type
 from rigify.utils.errors import MetarigError
 from rigify.utils.layers import ControlLayersOption
-from rigify.utils.naming import make_derived_name, get_name_base_and_sides, change_name_side, Side, SideZ
+from rigify.utils.naming import make_derived_name, get_name_base_and_sides, change_name_side, Side, SideZ, mirror_name
 from rigify.utils.bones import align_bone_orientation, align_bone_to_axis, BoneUtilityMixin
 from rigify.utils.widgets_basic import create_cube_widget, create_sphere_widget
 from rigify.utils.mechanism import MechanismUtilityMixin
@@ -216,7 +216,7 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
 
     def get_rotation(self):
         if self.rotation is None:
-            self.rotation = self.rig.get_final_control_node_rotation()
+            self.rotation = self.rig.get_final_control_node_rotation(self)
 
         return self.rotation
 
@@ -618,8 +618,9 @@ class BaseSkinRig(BaseRig):
     def extend_control_node_rig(self, node):
         pass
 
-    def get_control_node_rotation(self):
-        return self.get_bone(self.base_bone).bone.matrix_local.to_quaternion()
+
+def get_bone_quaternion(obj, bone):
+    return obj.pose.bones[bone].bone.matrix_local.to_quaternion()
 
 
 class BaseSkinChainRig(BaseSkinRig):
@@ -634,8 +635,11 @@ class BaseSkinChainRig(BaseSkinRig):
         "Called to build the primary parent of nodes owned by this rig."
         return self.build_control_node_parent_next(node)
 
-    def get_final_control_node_rotation(self):
-        return self.get_control_node_rotation()
+    def get_final_control_node_rotation(self, node):
+        return self.get_control_node_rotation(node)
+
+    def get_control_node_rotation(self, node):
+        return get_bone_quaternion(self.obj, self.base_bone)
 
     def make_control_node_widget(self, node):
         raise NotImplementedError()
@@ -652,75 +656,53 @@ class BaseSkinChainRig(BaseSkinRig):
 class BaseSkinChainRigWithRotationOption(BaseSkinChainRig):
     """Skin chain rig with an option to choose which parent's orientation to use for controls."""
 
-    def get_final_control_node_rotation(self):
-        # Hack: read the raw value without accessing the RNA wrapper
-        index = self.params.get("skin_control_rotation_index", 0)
-        rig = self
+    def get_final_control_node_rotation(self, node):
+        bone_name = self.params.skin_control_orientation_bone
 
-        while index > 0 and rig.rigify_parent:
-            rig = rig.rigify_parent
-            index -= 1
+        if bone_name:
+            try:
+                org_name = make_derived_name(bone_name, 'org')
 
-        if isinstance(rig, BaseSkinRig):
-            result = rig.get_control_node_rotation()
+                return get_bone_quaternion(self.obj, org_name)
+
+            except KeyError:
+                self.raise_error('Could not find orientation bone {}', bone_name)
+
         else:
-            result = rig.get_bone(rig.base_bone).bone.matrix_local.to_quaternion()
-
-        return result
-
-    @staticmethod
-    def list_parent_enum_items(pbone):
-        items = []
-
-        while pbone:
-            rtype = get_rigify_type(pbone)
-            if rtype:
-                items.append((pbone.name, '%s (%s)' % (pbone.name, rtype), ''))
-            pbone = pbone.parent
-
-        return items
-
-    __enum_items = []
-
-    @staticmethod
-    def parent_enum_items(scene, context):
-        pbone = context.active_pose_bone
-        if not pbone:
-            return items
-
-        items = BaseSkinChainRigWithRotationOption.__enum_items
-        items.clear()
-
-        items.extend(BaseSkinChainRigWithRotationOption.list_parent_enum_items(pbone))
-        if not items:
-            items.append(('unknown', 'unknown', ''))
-
-        return items
+            return self.get_control_node_rotation(node)
 
     @classmethod
     def add_parameters(self, params):
-        params.skin_control_rotation_index = bpy.props.EnumProperty(
-            name        = "Control Orientation",
-            description = "Select which parent rig provides orientation for the control bones",
-            items       = BaseSkinChainRigWithRotationOption.parent_enum_items,
+        params.skin_control_orientation_bone = bpy.props.StringProperty(
+            name        = "Orientation Bone",
+            description = "If set, control orientation is taken from the specified bone",
         )
 
         super().add_parameters(params)
 
     @classmethod
     def parameters_ui(self, layout, params):
-        r = layout.row()
-        r.prop(params, "skin_control_rotation_index", text='Orientation')
-        r.operator(POSE_OT_RigifySkinSyncRotationIndex.bl_idname, icon='DUPLICATE', text='')
+        row = layout.row()
+        row.prop_search(params, "skin_control_orientation_bone", bpy.context.active_object.pose, "bones", text="Orientation")
+
+        props = row.operator(POSE_OT_RigifySkinSyncRotationIndex.bl_idname, icon='DUPLICATE', text='')
+        props.property_name = "skin_control_orientation_bone"
+        props.class_name = __name__ + ':BaseSkinChainRigWithRotationOption'
+        props.mirror_bone = True
 
 
 class POSE_OT_RigifySkinSyncRotationIndex(bpy.types.Operator):
     """Upgrades metarig bones rigify_types"""
 
     bl_idname = "pose.rigify_skin_sync_rotation_index"
-    bl_label = "Copy Control Orientation To Selected"
-    bl_description = 'Set all selected skin metarigs to use this orientation where applicable'
+    bl_label = "Copy Option To Selected Rigs"
+    bl_description = 'Set all selected metarigs of the same type to this property value'
     bl_options = {'UNDO'}
+
+    property_name: bpy.props.StringProperty(name='Property Name')
+    rig_type: bpy.props.StringProperty(name='Rig Name:BaseClass')
+    class_name: bpy.props.StringProperty(name='Module:Class', default='')
+    mirror_bone: bpy.props.BoolProperty(name='Mirror Bone Name')
 
     @classmethod
     def poll(cls, context):
@@ -737,15 +719,35 @@ class POSE_OT_RigifySkinSyncRotationIndex(bpy.types.Operator):
     def execute(self, context):
         import rigify.rig_lists as rig_lists
 
+        if self.class_name:
+            import importlib
+            module_name, class_name = self.class_name.split(':')
+
+            try:
+                filter_rig_class = getattr(importlib.import_module(module_name), class_name)
+            except (KeyError, AttributeError, ImportError):
+                self.report({'ERROR'}, 'Invalid class spec: ' + self.class_name)
+                return {'CANCELLED'}
+        else:
+            items = self.rig_type.split(':')
+
+            try:
+                filter_rig_class = rig_lists.rigs[items[0]]["module"].Rig
+            except (KeyError, AttributeError):
+                self.report({'ERROR'}, 'Invalid rig type: ' + items[0])
+                return {'CANCELLED'}
+
+            if len(items) > 1:
+                bases = { c.__name__: c for c in type.mro(filter_rig_class) }
+                if items[1] not in bases:
+                    self.report({'ERROR'}, 'Invalid rig base class: ' + items[1])
+                    return {'CANCELLED'}
+
+                filter_rig_class = bases[items[1]]
+
         pbone = context.active_pose_bone
-        index = pbone.rigify_parameters.get("skin_control_rotation_index", 0)
-        items = BaseSkinChainRigWithRotationOption.list_parent_enum_items(pbone)
-
-        if index >= len(items):
-            self.report({'ERROR'}, 'Invalid index: ' + str(index))
-            return {'CANCELLED'}
-
-        parent_name = items[index][0]
+        value = getattr(pbone.rigify_parameters, self.property_name)
+        name_split = get_name_base_and_sides(pbone.name)
 
         for sel_pbone in context.selected_pose_bones:
             rig_type = get_rigify_type(sel_pbone)
@@ -755,15 +757,14 @@ class POSE_OT_RigifySkinSyncRotationIndex(bpy.types.Operator):
                 except (KeyError, AttributeError):
                     continue
 
-                if issubclass(rig_class, BaseSkinChainRigWithRotationOption):
-                    items = BaseSkinChainRigWithRotationOption.list_parent_enum_items(sel_pbone)
-                    names = [ item[0] for item in items ]
+                if issubclass(rig_class, filter_rig_class):
+                    new_value = value
 
-                    try:
-                        index = names.index(parent_name)
-                    except ValueError:
-                        continue
+                    if self.mirror_bone and name_split[1] != Side.MIDDLE and value:
+                        sel_split = get_name_base_and_sides(sel_pbone.name)
+                        if sel_split[1] == -name_split[1]:
+                            new_value = mirror_name(value)
 
-                    sel_pbone.rigify_parameters["skin_control_rotation_index"] = index
+                    setattr(sel_pbone.rigify_parameters, self.property_name, new_value)
 
         return {'FINISHED'}
