@@ -109,26 +109,27 @@ class Rig(BaseSkinChainRigWithRotationOption):
     use_pre_handles = False
 
     def get_connected_node(self, node):
-        if self.use_connect_mirror:
+        is_end = 1 if node.index != 0 else 0
+
+        if self.use_connect_mirror[is_end]:
             mirror = node.get_best_mirror()
             if mirror and mirror.chain_end_neighbor and isinstance(mirror.rig, Rig):
-                if mirror.rig.use_connect_mirror:
+                s_is_end = 1 if mirror.index != 0 else 0
+                if is_end == s_is_end and mirror.rig.use_connect_mirror[is_end]:
                     return mirror, mirror.chain_end_neighbor
 
-        if self.use_connect_ends:
-            starts = []
-            ends = []
+        if self.use_connect_ends[is_end]:
+            groups = ([], [])
 
             for sibling in node.get_merged_siblings():
-                if isinstance(sibling.rig, Rig) and sibling.chain_end_neighbor and sibling.rig.use_connect_ends:
-                    if sibling.index == 0:
-                        starts.append(sibling)
-                    else:
-                        ends.append(sibling)
+                if isinstance(sibling.rig, Rig) and sibling.chain_end_neighbor:
+                    s_is_end = 1 if sibling.index != 0 else 0
+                    if sibling.rig.use_connect_ends[s_is_end]:
+                        groups[s_is_end].append(sibling)
 
-            if len(starts) == 1 and len(ends) == 1:
-                assert node == starts[0] or node == ends[0]
-                link = starts[0] if node == ends[0] else ends[0]
+            if len(groups[0]) == 1 and len(groups[1]) == 1:
+                assert node == groups[is_end][0]
+                link = groups[1 - is_end][0]
                 return link, link.chain_end_neighbor
 
         return None, None
@@ -310,15 +311,17 @@ class Rig(BaseSkinChainRigWithRotationOption):
             description = 'Number of B-Bone segments'
         )
 
-        params.skin_chain_connect_mirror = bpy.props.BoolProperty(
+        params.skin_chain_connect_mirror = bpy.props.BoolVectorProperty(
+            size        = 2,
             name        = 'Connect With Mirror',
-            default     = True,
+            default     = (True, True),
             description = 'Create a smooth B-Bone transition if an end of the chain meets its mirror'
         )
 
-        params.skin_chain_connect_ends = bpy.props.BoolProperty(
+        params.skin_chain_connect_ends = bpy.props.BoolVectorProperty(
+            size        = 2,
             name        = 'Connect Matching Ends',
-            default     = False,
+            default     = (False, False),
             description = 'Create a smooth B-Bone transition if an end of the chain meets another chain going in the same direction'
         )
 
@@ -330,10 +333,24 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
         col = layout.column()
         col.active = params.bbones > 1
-        col.prop(params, "skin_chain_connect_mirror")
-        col.prop(params, "skin_chain_connect_ends")
+
+        row = col.row(align=True)
+        row.label(text="Connect Mirror:")
+        row = row.row(align=True)
+        row.prop(params, "skin_chain_connect_mirror", index=0, text="Start", toggle=True)
+        row.prop(params, "skin_chain_connect_mirror", index=1, text="End", toggle=True)
+
+        row = col.row(align=True)
+        row.label(text="Connect Next:")
+        row = row.row(align=True)
+        row.prop(params, "skin_chain_connect_ends", index=0, text="Start", toggle=True)
+        row.prop(params, "skin_chain_connect_ends", index=1, text="End", toggle=True)
 
         super().parameters_ui(layout, params)
 
         layout.prop(params, "skin_chain_priority")
 
+
+def create_sample(obj):
+    from rigify.rigs.basic.copy_chain import create_sample as inner
+    obj.pose.bones[inner(obj)["bone.01"]].rigify_type = 'skin.basic_chain'

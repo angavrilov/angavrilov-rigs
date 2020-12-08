@@ -28,7 +28,7 @@ from string import Template
 
 from rigify.utils.rig import get_rigify_type
 from rigify.utils.errors import MetarigError
-from rigify.utils.layers import ControlLayersOption
+from rigify.utils.layers import set_bone_layers
 from rigify.utils.naming import make_derived_name, get_name_base_and_sides, change_name_side, Side, SideZ, mirror_name
 from rigify.utils.bones import align_bone_orientation, align_bone_to_axis, BoneUtilityMixin
 from rigify.utils.widgets_basic import create_cube_widget, create_sphere_widget
@@ -317,6 +317,12 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
                 bone = self.reparent_bones[id(parent)]
                 if bone != self._control_bone:
                     self.set_bone_parent(bone, parent.output_bone, inherit_scale='AVERAGE')
+
+    def configure_bones(self):
+        layers = self.rig.get_control_node_layers(self)
+        if layers:
+            bone = self.get_bone(self.control_bone).bone
+            set_bone_layers(bone, layers, not self.is_master_node)
 
     def rig_bones(self):
         if self.is_master_node:
@@ -640,6 +646,9 @@ class BaseSkinChainRig(BaseSkinRig):
 
     def get_control_node_rotation(self, node):
         return get_bone_quaternion(self.obj, self.base_bone)
+
+    def get_control_node_layers(self, node):
+        return self.get_bone(self.base_bone).bone.layers
 
     def make_control_node_widget(self, node):
         raise NotImplementedError()

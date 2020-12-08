@@ -21,7 +21,7 @@
 import bpy
 
 from rigify.utils.naming import make_derived_name
-from rigify.utils.widgets_basic import create_cube_widget
+from rigify.utils.widgets import layout_widget_dropdown, create_registered_widget
 
 from rigify.base_rig import stage
 
@@ -52,9 +52,12 @@ class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
         org = self.bones.org
         name = make_derived_name(org, 'ctrl')
 
-        self.control_node = node = ControlBoneNode(self, org, name, icon=ControlNodeIcon.FREE)
+        self.control_node = node = ControlBoneNode(self, org, name, icon=ControlNodeIcon.CUSTOM)
 
         node.hide_control = self.params.skin_anchor_hide
+
+    def make_control_node_widget(self, node):
+        create_registered_widget(self.obj, node.control_bone, self.params.pivot_master_widget_type or 'cube')
 
     def extend_control_node_rig(self, node):
         if node.rig == self:
@@ -110,14 +113,33 @@ class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
             description = 'Make the control bone a mechanism bone invisible to the user and only affected by constraints'
         )
 
+        params.pivot_master_widget_type = bpy.props.StringProperty(
+            name        = "Widget Type",
+            default     = 'cube',
+            description = "Choose the type of the widget to create"
+        )
+
         self.add_relink_constraints_params(params)
 
         super().add_parameters(params)
 
     @classmethod
     def parameters_ui(self, layout, params):
-        layout.prop(params, "make_extra_deform", text='Generate Deform Bone')
-        layout.prop(params, "skin_anchor_hide")
+        col = layout.column()
+        col.prop(params, "make_extra_deform", text='Generate Deform Bone')
+        col.prop(params, "skin_anchor_hide")
+
+        row = layout.row()
+        row.active = not params.skin_anchor_hide
+        layout_widget_dropdown(row, params, "pivot_master_widget_type")
+
         layout.prop(params, "relink_constraints")
 
+        layout.label(text="All constraints are moved to the control bone.", icon='INFO')
+
         super().parameters_ui(layout, params)
+
+
+def create_sample(obj):
+    from rigify.rigs.basic.super_copy import create_sample as inner
+    obj.pose.bones[inner(obj)["Bone"]].rigify_type = 'skin.anchor'

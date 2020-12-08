@@ -146,6 +146,9 @@ class Rig(BaseSkinRig, RelinkConstraintsMixin):
         col2.active = params.skin_glue_use_tail
         col2.prop(params, "skin_glue_tail_reparent")
 
+        layout.label(text="All constraints are moved to the control bone.", icon='INFO')
+
+
 
 class PositionQueryNode(ControlQueryNode):
     """Finds the position of the highest layer control and rig reparent and/or org bone"""
@@ -188,3 +191,8 @@ class PositionQueryNode(ControlQueryNode):
     def rig_bones(self):
         if self.rig_org:
             self.make_constraint(self.org, 'COPY_TRANSFORMS', self.control_bone)
+
+
+def create_sample(obj):
+    from rigify.rigs.basic.super_copy import create_sample as inner
+    obj.pose.bones[inner(obj)["Bone"]].rigify_type = 'skin.glue'

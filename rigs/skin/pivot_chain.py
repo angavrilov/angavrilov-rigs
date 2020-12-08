@@ -37,6 +37,19 @@ from .skin_rigs import ControlBoneNode, ControlNodeLayer, ControlNodeIcon, Contr
 from .basic_chain import Rig as BasicChainRig
 
 
+ControlLayersOption.SKIN_PRIMARY = ControlLayersOption(
+    'skin_primary', toggle_default=False,
+    toggle_name="Primary Control Layers",
+    description="Layers for the primary controls to be on",
+)
+
+ControlLayersOption.SKIN_SECONDARY = ControlLayersOption(
+    'skin_secondary', toggle_default=False,
+    toggle_name="Secondary Control Layers",
+    description="Layers for the secondary controls to be on",
+)
+
+
 class Rig(BasicChainRig):
     """Skin chain with extra pivots."""
 
@@ -84,16 +97,22 @@ class Rig(BasicChainRig):
         if i == 0 or i == self.num_orgs:
             node.layer = ControlNodeLayer.FREE
             node.icon = ControlNodeIcon.FREE
-            node.node_needs_reparent = True
+            if i == 0:
+                node.node_needs_reparent = self.use_falloff_curve(0)
+            else:
+                node.node_needs_reparent = self.use_falloff_curve(2)
         elif i == self.pivot_pos:
             node.layer = ControlNodeLayer.MIDDLE_PIVOT
             node.icon = ControlNodeIcon.MIDDLE_PIVOT
-            node.node_needs_reparent = True
+            node.node_needs_reparent = self.use_falloff_curve(1)
         else:
             node.layer = ControlNodeLayer.TWEAK
             node.icon = ControlNodeIcon.TWEAK
 
         return node
+
+    def use_falloff_curve(self, idx):
+        return self.params.skin_chain_falloff[idx] > -10
 
     def apply_falloff_curve(self, factor, idx):
         weight = self.params.skin_chain_falloff[idx]
@@ -126,16 +145,19 @@ class Rig(BasicChainRig):
         parent = ControlBoneParentOffset.wrap(self, parent, node)
         factor = self.get_pivot_projection(node.point, node.index)
 
-        parent.add_copy_local_location(
-            LazyRef(self.control_nodes[0], 'reparent_bone'),
-            influence = self.apply_falloff_start(1 - factor),
-        )
-        parent.add_copy_local_location(
-            LazyRef(self.control_nodes[-1], 'reparent_bone'),
-            influence = self.apply_falloff_end(factor),
-        )
+        if self.use_falloff_curve(0):
+            parent.add_copy_local_location(
+                LazyRef(self.control_nodes[0], 'reparent_bone'),
+                influence = self.apply_falloff_start(1 - factor),
+            )
 
-        if self.pivot_pos and node.index != self.pivot_pos:
+        if self.use_falloff_curve(2):
+            parent.add_copy_local_location(
+                LazyRef(self.control_nodes[-1], 'reparent_bone'),
+                influence = self.apply_falloff_end(factor),
+            )
+
+        if self.pivot_pos and node.index != self.pivot_pos and self.use_falloff_curve(1):
             if node.index < self.pivot_pos:
                 factor = factor / self.middle_pivot_factor
             else:
@@ -148,6 +170,16 @@ class Rig(BasicChainRig):
 
         return parent
 
+    def get_control_node_layers(self, node):
+        layers = None
+
+        if self.pivot_pos and node.index == self.pivot_pos:
+            layers = ControlLayersOption.SKIN_SECONDARY.get(self.params)
+
+        if not layers and node.index in (0, self.num_orgs, self.pivot_pos):
+            layers = ControlLayersOption.SKIN_PRIMARY.get(self.params)
+
+        return layers or super().get_control_node_layers(node)
 
     ####################################################
     # B-Bone handle MCH
@@ -240,8 +272,8 @@ class Rig(BasicChainRig):
             size=3,
             name='Control Falloff',
             default=(0.0,1.0,0.0),
-            soft_min=-2, soft_max=2,
-            description='Falloff curve coefficient - 0 is linear, and higher value is wider influence',
+            soft_min=-2, min=-10, soft_max=2,
+            description='Falloff curve coefficient: 0 is linear, and higher value is wider influence. Set to -10 to disable influence completely',
         )
 
         params.skin_chain_falloff_length = bpy.props.BoolProperty(
@@ -255,6 +287,9 @@ class Rig(BasicChainRig):
             default=True,
             description='Propagate twist from pivot controls throughout the chain',
         )
+
+        ControlLayersOption.SKIN_PRIMARY.add_parameters(params)
+        ControlLayersOption.SKIN_SECONDARY.add_parameters(params)
 
         super().add_parameters(params)
 
@@ -276,4 +311,14 @@ class Rig(BasicChainRig):
         col.prop(params, "skin_chain_falloff_length")
         col.prop(params, "skin_chain_falloff_twist")
 
+        ControlLayersOption.SKIN_PRIMARY.parameters_ui(layout, params)
+
+        if params.skin_chain_pivot_pos > 0:
+            ControlLayersOption.SKIN_SECONDARY.parameters_ui(layout, params)
+
         super().parameters_ui(layout, params)
+
+
+def create_sample(obj):
+    from rigify.rigs.basic.copy_chain import create_sample as inner
+    obj.pose.bones[inner(obj)["bone.01"]].rigify_type = 'skin.pivot_chain'
