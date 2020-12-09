@@ -51,7 +51,10 @@ ControlLayersOption.SKIN_SECONDARY = ControlLayersOption(
 
 
 class Rig(BasicChainRig):
-    """Skin chain with extra pivots."""
+    """
+    Skin chain that propagates motion of its end and middle controls, resulting in
+    stretching the whole chain rather than just immediately connected chain segments.
+    """
 
     min_chain_length = 2
 
@@ -66,7 +69,7 @@ class Rig(BasicChainRig):
         self.pivot_pos = self.params.skin_chain_pivot_pos
 
         if not (0 <= self.pivot_pos < len(orgs)):
-            self.raise_error('Invalid middle pivot position: {}', self.pivot_pos)
+            self.raise_error('Invalid middle control position: {}', self.pivot_pos)
 
         bone_lengths = [ self.get_bone(org).length for org in orgs ]
 
@@ -255,10 +258,10 @@ class Rig(BasicChainRig):
     @classmethod
     def add_parameters(self, params):
         params.skin_chain_pivot_pos = bpy.props.IntProperty(
-            name='Middle Pivot Position',
+            name='Middle Control Position',
             default=0,
             min=0,
-            description='Position of the middle pivot, disabled if zero'
+            description='Position of the middle control, disabled if zero'
         )
 
         params.skin_chain_falloff_spherical = bpy.props.BoolVectorProperty(
@@ -285,7 +288,7 @@ class Rig(BasicChainRig):
         params.skin_chain_falloff_twist = bpy.props.BoolProperty(
             name='Propagate Twist',
             default=True,
-            description='Propagate twist from pivot controls throughout the chain',
+            description='Propagate twist from main controls throughout the chain',
         )
 
         ControlLayersOption.SKIN_PRIMARY.add_parameters(params)
@@ -321,4 +324,4 @@ class Rig(BasicChainRig):
 
 def create_sample(obj):
     from rigify.rigs.basic.copy_chain import create_sample as inner
-    obj.pose.bones[inner(obj)["bone.01"]].rigify_type = 'skin.pivot_chain'
+    obj.pose.bones[inner(obj)["bone.01"]].rigify_type = 'skin.stretchy_chain'

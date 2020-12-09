@@ -652,7 +652,7 @@ def create_sample(obj):
     pbone.lock_scale = (False, False, False)
     pbone.rotation_mode = 'QUATERNION'
     pbone = obj.pose.bones[bones['lid1.T.L']]
-    pbone.rigify_type = 'skin.pivot_chain'
+    pbone.rigify_type = 'skin.stretchy_chain'
     pbone.lock_location = (False, False, False)
     pbone.lock_rotation = (False, False, False)
     pbone.lock_rotation_w = False
@@ -671,7 +671,7 @@ def create_sample(obj):
     except AttributeError:
         pass
     pbone = obj.pose.bones[bones['lid1.B.L']]
-    pbone.rigify_type = 'skin.pivot_chain'
+    pbone.rigify_type = 'skin.stretchy_chain'
     pbone.lock_location = (False, False, False)
     pbone.lock_rotation = (False, False, False)
     pbone.lock_rotation_w = False

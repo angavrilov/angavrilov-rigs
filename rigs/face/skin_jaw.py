@@ -311,7 +311,7 @@ def create_sample(obj):
     except AttributeError:
         pass
     pbone = obj.pose.bones[bones['lip.T.L']]
-    pbone.rigify_type = 'skin.pivot_chain'
+    pbone.rigify_type = 'skin.stretchy_chain'
     pbone.lock_location = (False, False, False)
     pbone.lock_rotation = (False, False, False)
     pbone.lock_rotation_w = False
@@ -334,7 +334,7 @@ def create_sample(obj):
     except AttributeError:
         pass
     pbone = obj.pose.bones[bones['lip.B.L']]
-    pbone.rigify_type = 'skin.pivot_chain'
+    pbone.rigify_type = 'skin.stretchy_chain'
     pbone.lock_location = (False, False, False)
     pbone.lock_rotation = (False, False, False)
     pbone.lock_rotation_w = False
@@ -357,7 +357,7 @@ def create_sample(obj):
     except AttributeError:
         pass
     pbone = obj.pose.bones[bones['lip.T.R']]
-    pbone.rigify_type = 'skin.pivot_chain'
+    pbone.rigify_type = 'skin.stretchy_chain'
     pbone.lock_location = (False, False, False)
     pbone.lock_rotation = (False, False, False)
     pbone.lock_rotation_w = False
@@ -380,7 +380,7 @@ def create_sample(obj):
     except AttributeError:
         pass
     pbone = obj.pose.bones[bones['lip.B.R']]
-    pbone.rigify_type = 'skin.pivot_chain'
+    pbone.rigify_type = 'skin.stretchy_chain'
     pbone.lock_location = (False, False, False)
     pbone.lock_rotation = (False, False, False)
     pbone.lock_rotation_w = False
