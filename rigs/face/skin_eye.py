@@ -151,17 +151,32 @@ class Rig(BaseSkinRig):
             LazyRef(self.bones.mch, 'track'),
             influence=LazyRef(self.get_lid_follow_influence, node)
         )
+
+        if self.params.eyelid_detach_option:
+            # If the constraint on the control can be disabled, add another one to the mch
+            parent.add_limit_distance(
+                self.bones.org,
+                distance = (node.point - self.center).length,
+                limit_mode='LIMITDIST_ONSURFACE', use_transform_limit=True,
+                # Use custom space to accomodate scaling
+                space='CUSTOM', space_object=self.obj, space_subtarget=self.bones.org,
+            )
+            parent.final = True
+
         return parent
 
     def extend_control_node_rig(self, node):
         if self.is_eye_control_node(node):
-            self.make_constraint(
+            con = self.make_constraint(
                 node.control_bone, 'LIMIT_DISTANCE', self.bones.org,
                 distance = (node.point - self.center).length,
                 limit_mode='LIMITDIST_ONSURFACE', use_transform_limit=True,
                 # Use custom space to accomodate scaling
                 space='CUSTOM', space_object=self.obj, space_subtarget=self.bones.org,
             )
+
+            if self.params.eyelid_detach_option:
+                self.make_driver(con, 'influence', variables=[(self.bones.ctrl.target, 'lid_attach')])
 
     ####################################################
     # Master control
@@ -203,15 +218,21 @@ class Rig(BaseSkinRig):
         self.set_bone_parent(mch.master, ctrl.master)
         self.set_bone_parent(mch.track, ctrl.master)
 
+
     @stage.configure_bones
-    def configure_mch_track_bones(self):
+    def configure_script_panels(self):
         ctrl = self.bones.ctrl
 
-        controls = sum((chain.bones.ctrl.flatten() for chain in self.child_chains), ctrl.flatten())
+        controls = sum((chain.get_all_controls() for chain in self.child_chains), ctrl.flatten())
         panel = self.script.panel_with_selected_check(self, controls)
 
         self.make_property(ctrl.target, 'lid_follow', 1.0, description='Eylids follow eye movement')
         panel.custom_prop(ctrl.target, 'lid_follow', text='Eyelids Follow', slider=True)
+
+        if self.params.eyelid_detach_option:
+            self.make_property(ctrl.target, 'lid_attach', 1.0, description='Eylids follow eye surface')
+            panel.custom_prop(ctrl.target, 'lid_attach', text='Eyelids Attached', slider=True)
+
 
     @stage.rig_bones
     def rig_mch_track_bones(self):
@@ -275,10 +296,17 @@ class Rig(BaseSkinRig):
             description = "Create a deform bone for the copy"
         )
 
+        params.eyelid_detach_option = bpy.props.BoolProperty(
+            name        = "Eyelid Detach Option",
+            default     = False,
+            description = "Create an option to detach eyelids from the distance constraint"
+        )
+
     @classmethod
     def parameters_ui(self, layout, params):
-        r = layout.row()
-        r.prop(params, "make_deform", text="Eyball And Iris Deforms")
+        col = layout.column()
+        col.prop(params, "make_deform", text="Eyball And Iris Deforms")
+        col.prop(params, "eyelid_detach_option")
 
 
 class ChainPatch(RigComponent):
@@ -441,6 +469,12 @@ class EyeClusterControl(RigComponent):
             bone = self.get_bone(child)
             bone.lock_rotation = (True,True,True)
             bone.lock_rotation_w = True
+
+        if self.rig_count > 1:
+            panel = self.owner.script.panel_with_selected_check(self.owner, [self.master_bone])
+
+            for child in self.child_bones:
+                panel.custom_prop(child, 'lid_follow', text='Eyelids Follow (%s)'%(child), slider=True)
 
     def generate_widgets(self):
         for child in self.child_bones:

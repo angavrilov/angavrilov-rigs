@@ -63,6 +63,9 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
         return sum(quats, Quaternion((0,0,0,0))).normalized()
 
+    def get_all_controls(self):
+        return [ node.control_bone for node in self.control_nodes ]
+
     ####################################################
     # CONTROL NODES
 

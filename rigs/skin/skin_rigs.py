@@ -185,9 +185,13 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
 
         # Build the parent
         result = node.rig.build_own_control_node_parent(node)
+        parents = node.rig.get_all_parent_skin_rigs()
 
-        for rig in reversed(node.rig.get_all_parent_skin_rigs()):
+        for rig in reversed(parents):
             result = rig.extend_control_node_parent(result, node)
+
+        for rig in parents:
+            result = rig.extend_control_node_parent_post(result, node)
 
         # Remove duplicates
         cache = self.parent_subrig_cache
@@ -437,7 +441,7 @@ class ControlBoneParentOffset(LazyRigComponent):
 
     @classmethod
     def wrap(cls, owner, parent, *constructor_args):
-        if isinstance(parent, ControlBoneParentOffset):
+        if isinstance(parent, ControlBoneParentOffset) and not parent.final:
             return parent
 
         return cls(owner, parent, *constructor_args)
@@ -446,9 +450,15 @@ class ControlBoneParentOffset(LazyRigComponent):
         super().__init__(rig)
         self.parent = parent
         self.node = node
+        self.final = False
         self.copy_local = {}
         self.add_local = {}
         self.add_orientations = {}
+        self.limit_distance = []
+
+    def enable_component(self):
+        super().enable_component()
+        self.parent.enable_component()
 
     def add_copy_local_location(self, target, *, influence=1, influence_expr=None, influence_vars={}):
         if target not in self.copy_local:
@@ -472,12 +482,16 @@ class ControlBoneParentOffset(LazyRigComponent):
 
         self.add_local[key][index].append((expression, variables))
 
+    def add_limit_distance(self, target, **kwargs):
+        self.limit_distance.append((target, kwargs))
+
     def __eq__(self, other):
         return (
             isinstance(other, ControlBoneParentOffset) and
             self.parent == other.parent and
             self.copy_local == other.copy_local and
-            self.add_local == other.add_local
+            self.add_local == other.add_local and
+            self.limit_distance == other.limit_distance
         )
 
     @property
@@ -487,7 +501,7 @@ class ControlBoneParentOffset(LazyRigComponent):
     def generate_bones(self):
         self.mch_bones = []
 
-        if self.copy_local or self.add_local:
+        if self.copy_local or self.add_local or self.limit_distance:
             mch_name = make_derived_name(self.node.name, 'mch', '_poffset')
 
             if self.add_local:
@@ -572,6 +586,9 @@ class ControlBoneParentOffset(LazyRigComponent):
                         expr, variables = self.compile_driver(vals)
                         self.make_driver(mch, 'location', index=index, expression=expr, variables=variables)
 
+        for target, kwargs in self.limit_distance:
+            self.make_constraint(self.mch_bones[-1], 'LIMIT_DISTANCE', target, **kwargs)
+
 
 class BaseSkinRig(BaseRig):
     """Base type for all rigs involved in the skin system"""
@@ -619,6 +636,9 @@ class BaseSkinRig(BaseRig):
         return ControlBoneParentOrg(self.get_child_chain_parent(node.rig, parent_bone))
 
     def extend_control_node_parent(self, parent, node):
+        return parent
+
+    def extend_control_node_parent_post(self, parent, node):
         return parent
 
     def extend_control_node_rig(self, node):
