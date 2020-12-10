@@ -19,6 +19,7 @@
 # <pep8 compliant>
 
 import bpy
+import math
 
 from itertools import count, repeat
 from mathutils import Vector, Matrix, Quaternion
@@ -113,13 +114,15 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
     def get_connected_node(self, node):
         is_end = 1 if node.index != 0 else 0
+        corner = self.params.skin_chain_connect_sharp_angle[is_end]
 
         if self.use_connect_mirror[is_end]:
             mirror = node.get_best_mirror()
             if mirror and mirror.chain_end_neighbor and isinstance(mirror.rig, Rig):
                 s_is_end = 1 if mirror.index != 0 else 0
                 if is_end == s_is_end and mirror.rig.use_connect_mirror[is_end]:
-                    return mirror, mirror.chain_end_neighbor
+                    mirror_corner = mirror.rig.params.skin_chain_connect_sharp_angle[is_end]
+                    return mirror, mirror.chain_end_neighbor, (corner + mirror_corner)/2
 
         if self.use_connect_ends[is_end]:
             groups = ([], [])
@@ -133,23 +136,24 @@ class Rig(BaseSkinChainRigWithRotationOption):
             if len(groups[0]) == 1 and len(groups[1]) == 1:
                 assert node == groups[is_end][0]
                 link = groups[1 - is_end][0]
-                return link, link.chain_end_neighbor
+                link_corner = link.rig.params.skin_chain_connect_sharp_angle[1 - is_end]
+                return link, link.chain_end_neighbor, (corner + link_corner)/2
 
-        return None, None
+        return None, None, False
 
     def get_node_chain_with_mirror(self):
         nodes = self.control_nodes
-        prev_link, prev_node = self.get_connected_node(nodes[0])
-        next_link, next_node = self.get_connected_node(nodes[-1])
+        prev_link, self.prev_node, self.prev_corner = self.get_connected_node(nodes[0])
+        next_link, self.next_node, self.next_corner = self.get_connected_node(nodes[-1])
 
         # Optimize connect next by sharing last handle mch
         self.next_chain_rig = None
 
         if next_link and next_link.index == 0:
             self.next_chain_rig = next_link.rig
-            return [ prev_node, *nodes ]
+            return [ self.prev_node, *nodes ]
 
-        return [ prev_node, *nodes, next_node ]
+        return [ self.prev_node, *nodes, self.next_node ]
 
     def get_all_mch_handles(self):
         if self.next_chain_rig:
@@ -301,6 +305,23 @@ class Rig(BaseSkinChainRigWithRotationOption):
     def rig_deform_bone(self, i, deform, org):
         self.make_constraint(deform, 'COPY_TRANSFORMS', org)
 
+        if i == 0 and self.prev_corner > 1e-3:
+            self.make_corner_driver(deform, 'bbone_easein', self.control_nodes[0], self.control_nodes[1], self.prev_node, self.prev_corner)
+        elif i == self.num_orgs-1 and self.next_corner > 1e-3:
+            self.make_corner_driver(deform, 'bbone_easeout', self.control_nodes[-1], self.control_nodes[-2], self.next_node, self.next_corner)
+
+    def make_corner_driver(self, bbone, field, corner_node, next_node1, next_node2, angle):
+        varmap = {
+            'a': driver_var_distance(self.obj, bone1=corner_node.control_bone, bone2=next_node1.control_bone),
+            'b': driver_var_distance(self.obj, bone1=corner_node.control_bone, bone2=next_node2.control_bone),
+            'c': driver_var_distance(self.obj, bone1=next_node1.control_bone, bone2=next_node2.control_bone),
+        }
+
+        self.make_driver(
+            self.get_bone(bbone), field,
+            expression='-2+2*smoothstep(-1,1,acos((a*a+b*b-c*c)/max(2*a*b,1e-10))/%f)' % (angle),
+            variables=varmap
+        )
 
     ####################################################
     # SETTINGS
@@ -321,6 +342,16 @@ class Rig(BaseSkinChainRigWithRotationOption):
             description = 'Create a smooth B-Bone transition if an end of the chain meets its mirror'
         )
 
+        params.skin_chain_connect_sharp_angle = bpy.props.FloatVectorProperty(
+            size        = 2,
+            name        = 'Sharpen Corner',
+            default     = (0, 0),
+            min         = 0,
+            max         = math.pi,
+            description = 'Create a mechanism to sharpen a connected corner when the angle is below this value',
+            unit        = 'ROTATION',
+        )
+
         params.skin_chain_connect_ends = bpy.props.BoolVectorProperty(
             size        = 2,
             name        = 'Connect Matching Ends',
@@ -337,21 +368,60 @@ class Rig(BaseSkinChainRigWithRotationOption):
         col = layout.column()
         col.active = params.bbones > 1
 
-        row = col.row(align=True)
+        row = col.split(factor=0.3)
         row.label(text="Connect Mirror:")
         row = row.row(align=True)
         row.prop(params, "skin_chain_connect_mirror", index=0, text="Start", toggle=True)
         row.prop(params, "skin_chain_connect_mirror", index=1, text="End", toggle=True)
 
-        row = col.row(align=True)
+        row = col.split(factor=0.3)
         row.label(text="Connect Next:")
         row = row.row(align=True)
         row.prop(params, "skin_chain_connect_ends", index=0, text="Start", toggle=True)
         row.prop(params, "skin_chain_connect_ends", index=1, text="End", toggle=True)
 
+        row = col.split(factor=0.3)
+        row.label(text="Sharpen:")
+        row = row.row(align=True)
+        row.prop(params, "skin_chain_connect_sharp_angle", index=0, text="Start")
+        row.prop(params, "skin_chain_connect_sharp_angle", index=1, text="End")
+
         super().parameters_ui(layout, params)
 
         layout.prop(params, "skin_chain_priority")
+
+
+
+def driver_var_distance(target, *, bone1=None, target2=None, bone2=None, space1='WORLD', space2='WORLD'):
+    """
+    Create a Distance driver variable specification.
+
+    Usage:
+        make_driver(..., variables=[driver_var_distance(...)])
+
+    Target bone name can be provided via a 'lazy' callable closure without arguments.
+    """
+
+    assert space1 in {'WORLD', 'TRANSFORM', 'LOCAL'}
+    assert space2 in {'WORLD', 'TRANSFORM', 'LOCAL'}
+
+    target1_map = {
+        'id': target,
+        'transform_space': space1 + '_SPACE',
+    }
+
+    if bone1 is not None:
+        target1_map['bone_target'] = bone1
+
+    target2_map = {
+        'id': target2 or target,
+        'transform_space': space2 + '_SPACE',
+    }
+
+    if bone2 is not None:
+        target2_map['bone_target'] = bone2
+
+    return { 'type': 'LOC_DIFF', 'targets': [ target1_map, target2_map ] }
 
 
 def create_sample(obj):
