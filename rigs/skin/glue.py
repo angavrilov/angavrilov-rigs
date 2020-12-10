@@ -82,12 +82,34 @@ class Rig(BaseSkinRig, RelinkConstraintsMixin):
 
     @stage.rig_bones
     def rig_org_bone(self):
+        org = self.bones.org
+        ctrl = self.head_constraint_node.control_bone
+
         # This executes before head_position_node owned a by generator plugin
-        self.relink_bone_constraints(self.bones.org)
+        self.relink_bone_constraints(org)
+
+        # Add the built-in constraint
+        if self.use_tail:
+            target = self.tail_position_node.output_bone
+            add_mode = self.params.skin_glue_add_constraint
+            inf = self.params.skin_glue_add_constraint_influence
+
+            if add_mode == 'COPY_LOCATION':
+                self.make_constraint(
+                    ctrl, 'COPY_LOCATION', target,
+                    owner_space='LOCAL', target_space='LOCAL',
+                    use_offset=True, influence=inf
+                )
+            elif add_mode == 'COPY_LOCATION_OWNER':
+                self.make_constraint(
+                    ctrl, 'COPY_LOCATION', target,
+                    owner_space='LOCAL', target_space='OWNER_LOCAL',
+                    use_offset=True, influence=inf
+                )
 
         # Move constraints to the control
-        org_bone = self.get_bone(self.bones.org)
-        ctl_bone = self.get_bone(self.head_constraint_node.control_bone)
+        org_bone = self.get_bone(org)
+        ctl_bone = self.get_bone(ctrl)
 
         for con in list(org_bone.constraints):
             ctl_bone.constraints.copy(con)
@@ -129,6 +151,26 @@ class Rig(BaseSkinRig, RelinkConstraintsMixin):
             description = 'Include transformations induced by target parents into target local space'
         )
 
+        params.skin_glue_add_constraint = bpy.props.EnumProperty(
+            name        = 'Add Constraint',
+            items       = [('NONE', 'No New Constraint',
+                            "Don't add new constraints"),
+                           ('COPY_LOCATION', 'Copy Location (Local)',
+                            "Add a constraint to copy Local Location with Offset. If the owner and target control "+
+                            "rest orientations are different, the global movement direction will change accordingly"),
+                           ('COPY_LOCATION_OWNER', 'Copy Location (Owner Local)',
+                            "Add a constraint to copy Owner Local Location with Offset. Even if the owner and target "+
+                            "controls have different rest orientations, the global movement direction would be the same")],
+            default     = 'NONE',
+            description = "Add one of the common constraints linking the control to the tail target",
+        )
+
+        params.skin_glue_add_constraint_influence = bpy.props.FloatProperty(
+            name        = "Influence",
+            default     = 1.0, min=0, max=1,
+            description = "Influence of the added constraint",
+        )
+
         self.add_relink_constraints_params(params)
 
         super().add_parameters(params)
@@ -138,13 +180,21 @@ class Rig(BaseSkinRig, RelinkConstraintsMixin):
         layout.prop(params, "skin_glue_head_mode")
         layout.prop(params, "relink_constraints")
 
-        col = layout.column()
-        col.active = params.relink_constraints
-        col.prop(params, "skin_glue_use_tail")
+        if params.relink_constraints:
+            col = layout.column()
+            col.prop(params, "skin_glue_use_tail")
 
-        col2 = col.column()
-        col2.active = params.skin_glue_use_tail
-        col2.prop(params, "skin_glue_tail_reparent")
+            col2 = col.column()
+            col2.active = params.skin_glue_use_tail
+            col2.prop(params, "skin_glue_tail_reparent")
+
+            col = layout.column()
+            col.active = params.skin_glue_use_tail
+            col.prop(params, "skin_glue_add_constraint", text="Add")
+
+            col3 = col.column()
+            col3.active = params.skin_glue_add_constraint != 'NONE'
+            col3.prop(params, "skin_glue_add_constraint_influence", slider=True)
 
         layout.label(text="All constraints are moved to the control bone.", icon='INFO')
 

@@ -67,7 +67,7 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
 
     def __init__(
         self, rig, org, name, *, point=None, size=None,
-        needs_parent=False, needs_reparent=False,
+        needs_parent=False, needs_reparent=False, allow_scale=False,
         layer=ControlNodeLayer.FREE, index=None, icon=ControlNodeIcon.TWEAK,
         ):
         assert isinstance(rig, BaseSkinChainRig)
@@ -95,6 +95,8 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
 
         # Generate the control as a MCH bone to hide it from the user
         self.hide_control = False
+        # Unlock scale channels
+        self.allow_scale = allow_scale
 
         # For use by the owner rig: index in chain
         self.index = index
@@ -323,6 +325,10 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
                     self.set_bone_parent(bone, parent.output_bone, inherit_scale='AVERAGE')
 
     def configure_bones(self):
+        if self.is_master_node:
+            if not any(node.allow_scale for node in self.get_merged_siblings()):
+                self.get_bone(self.control_bone).lock_scale = (True, True, True)
+
         layers = self.rig.get_control_node_layers(self)
         if layers:
             bone = self.get_bone(self.control_bone).bone
