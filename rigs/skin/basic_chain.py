@@ -24,6 +24,9 @@ import math
 from itertools import count, repeat
 from mathutils import Vector, Matrix, Quaternion
 
+from math import acos
+from bl_math import smoothstep
+
 from rigify.utils.rig import connected_children_names
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.naming import make_derived_name
@@ -51,6 +54,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         self.use_bbones = self.bbone_segments > 1
         self.use_connect_mirror = self.params.skin_chain_connect_mirror
         self.use_connect_ends = self.params.skin_chain_connect_ends
+        self.use_scale = any(self.params.skin_chain_use_scale)
 
         orgs = self.bones.org
 
@@ -88,7 +92,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         bone = self.get_bone(org)
         name = make_derived_name(org, 'ctrl', '_end' if is_end else '')
         pos = bone.tail if is_end else bone.head
-        return ControlBoneNode(self, org, name, point=pos, size=self.length/3, index=i)
+        return ControlBoneNode(self, org, name, point=pos, size=self.length/3, index=i, allow_scale=self.use_scale)
 
     def make_control_node_widget(self, node):
         create_sphere_widget(self.obj, node.control_bone)
@@ -297,6 +301,10 @@ class Rig(BaseSkinChainRigWithRotationOption):
                 bone.bbone_handle_type_end = 'TANGENT'
                 bone.bbone_custom_handle_end = self.get_bone(end_handle)
 
+                if self.use_scale:
+                    bone.bbone_handle_scale_start = self.params.skin_chain_use_scale
+                    bone.bbone_handle_scale_end = self.params.skin_chain_use_scale
+
     @stage.rig_bones
     def rig_deform_chain(self):
         for args in zip(count(0), self.bones.deform, self.bones.org):
@@ -311,15 +319,25 @@ class Rig(BaseSkinChainRigWithRotationOption):
             self.make_corner_driver(deform, 'bbone_easeout', self.control_nodes[-1], self.control_nodes[-2], self.next_node, self.next_corner)
 
     def make_corner_driver(self, bbone, field, corner_node, next_node1, next_node2, angle):
+        pbone = self.get_bone(bbone)
+
+        a = (corner_node.point - next_node1.point).length
+        b = (corner_node.point - next_node2.point).length
+        c = (next_node1.point - next_node2.point).length
+
         varmap = {
             'a': driver_var_distance(self.obj, bone1=corner_node.control_bone, bone2=next_node1.control_bone),
             'b': driver_var_distance(self.obj, bone1=corner_node.control_bone, bone2=next_node2.control_bone),
             'c': driver_var_distance(self.obj, bone1=next_node1.control_bone, bone2=next_node2.control_bone),
         }
 
+        initval = -1+2*smoothstep(-1,1,acos((a*a+b*b-c*c)/max(2*a*b,1e-10))/angle)
+
+        setattr(pbone.bone, field, initval)
+
         self.make_driver(
-            self.get_bone(bbone), field,
-            expression='-2+2*smoothstep(-1,1,acos((a*a+b*b-c*c)/max(2*a*b,1e-10))/%f)' % (angle),
+            pbone, field,
+            expression='%f+2*smoothstep(-1,1,acos((a*a+b*b-c*c)/max(2*a*b,1e-10))/%f)' % (-1-initval, angle),
             variables=varmap
         )
 
@@ -333,6 +351,13 @@ class Rig(BaseSkinChainRigWithRotationOption):
             default     = 10,
             min         = 1,
             description = 'Number of B-Bone segments'
+        )
+
+        params.skin_chain_use_scale = bpy.props.BoolVectorProperty(
+            size        = 4,
+            name        = 'Use Handle Scale',
+            default     = (False, False, False, False),
+            description = 'Use control scaling to scale the B-Bone'
         )
 
         params.skin_chain_connect_mirror = bpy.props.BoolVectorProperty(
@@ -367,6 +392,14 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
         col = layout.column()
         col.active = params.bbones > 1
+
+        row = col.split(factor=0.3)
+        row.label(text="Scale:")
+        row = row.row(align=True)
+        row.prop(params, "skin_chain_use_scale", index=0, text="X", toggle=True)
+        row.prop(params, "skin_chain_use_scale", index=1, text="Y", toggle=True)
+        row.prop(params, "skin_chain_use_scale", index=2, text="Len", toggle=True)
+        row.prop(params, "skin_chain_use_scale", index=3, text="Ease", toggle=True)
 
         row = col.split(factor=0.3)
         row.label(text="Connect Mirror:")
