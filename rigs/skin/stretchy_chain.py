@@ -33,7 +33,7 @@ from rigify.utils.mechanism import driver_var_transform
 
 from rigify.base_rig import stage
 
-from .skin_rigs import ControlBoneNode, ControlNodeLayer, ControlNodeIcon, ControlBoneParentOffset, LazyRef
+from .skin_rigs import ControlBoneNode, ControlNodeLayer, ControlNodeIcon, ControlBoneWeakParentLayer, ControlBoneParentOffset, LazyRef
 from .basic_chain import Rig as BasicChainRig
 
 
@@ -171,6 +171,10 @@ class Rig(BasicChainRig):
                 influence = self.apply_falloff_middle(clamp(factor)),
             )
 
+        if node.index != self.pivot_pos and self.params.skin_chain_falloff_to_controls:
+            if self.params.skin_chain_falloff_twist or self.params.skin_chain_falloff_scale:
+                parent = ControlBoneChainPropagate(self, parent, node)
+
         return parent
 
     def get_control_node_layers(self, node):
@@ -190,6 +194,9 @@ class Rig(BasicChainRig):
     def rig_mch_handle_user(self, i, mch, prev_node, node, next_node, pre):
         super().rig_mch_handle_user(i, mch, prev_node, node, next_node, pre)
 
+        self.rig_propagate(mch, node)
+
+    def rig_propagate(self, mch, node):
         # Interpolate chain twist between pivots
         if node.index not in (0, self.num_orgs, self.pivot_pos):
             index1, index2, factor = self.get_propagate_spec(node)
@@ -322,6 +329,12 @@ class Rig(BasicChainRig):
             description='Propagate scale from main controls throughout the chain',
         )
 
+        params.skin_chain_falloff_to_controls = bpy.props.BoolProperty(
+            name='Propagate To Controls',
+            default=False,
+            description='Propagate scale and/or twist to tweak controls, rather than just within the chain',
+        )
+
         ControlLayersOption.SKIN_PRIMARY.add_parameters(params)
         ControlLayersOption.SKIN_SECONDARY.add_parameters(params)
 
@@ -349,6 +362,7 @@ class Rig(BasicChainRig):
         row = row.row(align=True)
         row.prop(params, "skin_chain_falloff_twist", text="Twist", toggle=True)
         row.prop(params, "skin_chain_falloff_scale", text="Scale", toggle=True)
+        row.prop(params, "skin_chain_falloff_to_controls", text="To Controls", toggle=True)
 
         ControlLayersOption.SKIN_PRIMARY.parameters_ui(layout, params)
 
@@ -356,6 +370,31 @@ class Rig(BasicChainRig):
             ControlLayersOption.SKIN_SECONDARY.parameters_ui(layout, params)
 
         super().parameters_ui(layout, params)
+
+
+class ControlBoneChainPropagate(ControlBoneWeakParentLayer):
+    """
+    Parent mechanism generator that propagates chain twist/scale.
+    """
+    inherit_scale_mode = 'FULL'
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, ControlBoneChainPropagate) and
+            self.parent == other.parent and
+            self.owner == other.owner and
+            self.node.index == other.node.index
+        )
+
+    def generate_bones(self):
+        handle = self.owner.bones.mch.handles[self.node.index]
+        self.output_bone = self.copy_bone(handle, make_derived_name(handle, 'mch', '_parent'))
+
+    def parent_bones(self):
+        self.set_bone_parent(self.output_bone, self.parent.output_bone, inherit_scale='AVERAGE')
+
+    def rig_bones(self):
+        self.owner.rig_propagate(self.output_bone, self.node)
 
 
 def create_sample(obj):

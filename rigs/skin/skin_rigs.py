@@ -30,7 +30,7 @@ from rigify.utils.rig import get_rigify_type
 from rigify.utils.errors import MetarigError
 from rigify.utils.layers import set_bone_layers
 from rigify.utils.naming import make_derived_name, get_name_base_and_sides, change_name_side, Side, SideZ, mirror_name
-from rigify.utils.bones import align_bone_orientation, align_bone_to_axis, BoneUtilityMixin
+from rigify.utils.bones import align_bone_orientation, align_bone_to_axis, BoneUtilityMixin, set_bone_widget_transform
 from rigify.utils.widgets_basic import create_cube_widget, create_sphere_widget
 from rigify.utils.mechanism import MechanismUtilityMixin
 from rigify.utils.misc import force_lazy
@@ -255,6 +255,9 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
             else:
                 self.use_mix_parent = True
 
+            self.has_weak_parent = isinstance(self.node_parent, ControlBoneWeakParentLayer)
+            self.node_parent_list = [ ControlBoneWeakParentLayer.strip(p) for p in self.node_parent_list ]
+
         # All nodes
         if self.node_needs_parent or self.node_needs_reparent:
             parent = self.build_parent()
@@ -305,11 +308,17 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
             else:
                 self.reparent_bones[id(self.node_parent)] = self._control_bone
 
+            self.use_weak_parent = False
+
             # Make requested reparents
             for parent in self.reparent_requests:
                 if id(parent) not in self.reparent_bones:
                     parent_name = self.parent_subrig_names[id(parent)]
                     self.reparent_bones[id(parent)] = self.make_bone(make_derived_name(parent_name, 'mch', '_reparent'), 1/3)
+                    self.use_weak_parent = self.has_weak_parent
+
+            if self.use_weak_parent:
+                self.weak_parent_bone = self.make_bone(make_derived_name(self._control_bone, 'mch', '_weak_parent'), 1/2)
 
     def parent_bones(self):
         if self.is_master_node:
@@ -317,7 +326,13 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
                 self.set_bone_parent(self._control_bone, self.mix_parent_bone, inherit_scale='AVERAGE')
                 self.rig.generator.disable_auto_parent(self.mix_parent_bone)
             else:
-                self.set_bone_parent(self._control_bone, self.node_parent.output_bone, inherit_scale='AVERAGE')
+                self.set_bone_parent(self._control_bone, self.node_parent_list[0].output_bone, inherit_scale='AVERAGE')
+
+            if self.use_weak_parent:
+                self.set_bone_parent(
+                    self.weak_parent_bone, self.node_parent.output_bone,
+                    inherit_scale=self.node_parent.inherit_scale_mode
+                )
 
             for parent in self.reparent_requests:
                 bone = self.reparent_bones[id(parent)]
@@ -343,10 +358,19 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
             for rig in reversed(self.rig.get_all_parent_skin_rigs()):
                 rig.extend_control_node_rig(self)
 
+            reparent_source = self.control_bone
+
+            if self.use_weak_parent:
+                reparent_source = self.weak_parent_bone
+
+                self.make_constraint(reparent_source, 'COPY_TRANSFORMS', self.control_bone, space='LOCAL')
+
+                set_bone_widget_transform(self.obj, self.control_bone, reparent_source)
+
             for parent in self.reparent_requests:
                 bone = self.reparent_bones[id(parent)]
                 if bone != self._control_bone:
-                    self.make_constraint(bone, 'COPY_TRANSFORMS', self.control_bone)
+                    self.make_constraint(bone, 'COPY_TRANSFORMS', reparent_source)
 
     def generate_widgets(self):
         if self.is_master_node:
@@ -436,7 +460,31 @@ class LazyRef:
         return first
 
 
-class ControlBoneParentOffset(LazyRigComponent):
+class ControlBoneParentLayer(LazyRigComponent):
+    rigify_sub_object_run_late = True
+
+    def __init__(self, rig, parent, node):
+        super().__init__(rig)
+        self.parent = parent
+        self.node = node
+
+    def enable_component(self):
+        super().enable_component()
+        self.parent.enable_component()
+
+
+class ControlBoneWeakParentLayer(ControlBoneParentLayer):
+    inherit_scale_mode = 'AVERAGE'
+
+    @staticmethod
+    def strip(parent):
+        while isinstance(parent, ControlBoneWeakParentLayer):
+            parent = parent.parent
+
+        return parent
+
+
+class ControlBoneParentOffset(ControlBoneParentLayer):
     """
     Parent mechanism generator that offsets the control's location.
 
@@ -453,18 +501,12 @@ class ControlBoneParentOffset(LazyRigComponent):
         return cls(owner, parent, *constructor_args)
 
     def __init__(self, rig, parent, node):
-        super().__init__(rig)
-        self.parent = parent
-        self.node = node
+        super().__init__(rig, parent, node)
         self.final = False
         self.copy_local = {}
         self.add_local = {}
         self.add_orientations = {}
         self.limit_distance = []
-
-    def enable_component(self):
-        super().enable_component()
-        self.parent.enable_component()
 
     def add_copy_local_location(self, target, *, influence=1, influence_expr=None, influence_vars={}):
         if target not in self.copy_local:

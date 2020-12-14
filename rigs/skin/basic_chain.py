@@ -55,6 +55,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         self.use_connect_mirror = self.params.skin_chain_connect_mirror
         self.use_connect_ends = self.params.skin_chain_connect_ends
         self.use_scale = any(self.params.skin_chain_use_scale)
+        self.use_reparent_handles = self.params.skin_chain_use_reparent
 
         orgs = self.bones.org
 
@@ -92,7 +93,10 @@ class Rig(BaseSkinChainRigWithRotationOption):
         bone = self.get_bone(org)
         name = make_derived_name(org, 'ctrl', '_end' if is_end else '')
         pos = bone.tail if is_end else bone.head
-        return ControlBoneNode(self, org, name, point=pos, size=self.length/3, index=i, allow_scale=self.use_scale)
+        return ControlBoneNode(
+            self, org, name, point=pos, size=self.length/3, index=i,
+            allow_scale=self.use_scale, needs_reparent=self.use_reparent_handles,
+        )
 
     def make_control_node_widget(self, node):
         create_sphere_widget(self.obj, node.control_bone)
@@ -240,8 +244,10 @@ class Rig(BaseSkinChainRigWithRotationOption):
             )
 
         # Apply user rotation and scale
+        input_bone = node.reparent_bone if self.use_reparent_handles else node.control_bone
+
         self.make_constraint(
-            mch, 'COPY_TRANSFORMS', node.control_bone, name='copy_user',
+            mch, 'COPY_TRANSFORMS', input_bone, name='copy_user',
             target_space='OWNER_LOCAL', owner_space='LOCAL',
             mix_mode='BEFORE_FULL',
         )
@@ -353,6 +359,12 @@ class Rig(BaseSkinChainRigWithRotationOption):
             description = 'Number of B-Bone segments'
         )
 
+        params.skin_chain_use_reparent = bpy.props.BoolProperty(
+            name='Merge Parent Rotation And Scale',
+            default=False,
+            description='When merging controls, apply parent-induced rotation/scale difference',
+        )
+
         params.skin_chain_use_scale = bpy.props.BoolVectorProperty(
             size        = 4,
             name        = 'Use Handle Scale',
@@ -392,6 +404,8 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
         col = layout.column()
         col.active = params.bbones > 1
+
+        col.prop(params, "skin_chain_use_reparent")
 
         row = col.split(factor=0.3)
         row.label(text="Use Scale:")
