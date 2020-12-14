@@ -129,16 +129,16 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
         if len(other_parents) > len(my_parents) and other_parents[0:len(other_parents)] == my_parents:
             return False
 
-        # Prefer middle chains
+        # Prefer side chains
         side_x_my, side_z_my = map(abs, self.name_split[1:])
         side_x_other, side_z_other = map(abs, other.name_split[1:])
 
         if ((side_x_my < side_x_other and side_z_my <= side_z_other) or
             (side_x_my <= side_x_other and side_z_my < side_z_other)):
-            return True
+            return False
         if ((side_x_my > side_x_other and side_z_my >= side_z_other) or
             (side_x_my >= side_x_other and side_z_my > side_z_other)):
-            return False
+            return True
 
         return False
 

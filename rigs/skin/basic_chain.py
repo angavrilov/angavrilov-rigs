@@ -394,7 +394,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         col.active = params.bbones > 1
 
         row = col.split(factor=0.3)
-        row.label(text="Scale:")
+        row.label(text="Use Scale:")
         row = row.row(align=True)
         row.prop(params, "skin_chain_use_scale", index=0, text="X", toggle=True)
         row.prop(params, "skin_chain_use_scale", index=1, text="Y", toggle=True)

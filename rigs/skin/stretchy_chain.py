@@ -191,66 +191,91 @@ class Rig(BasicChainRig):
         super().rig_mch_handle_user(i, mch, prev_node, node, next_node, pre)
 
         # Interpolate chain twist between pivots
-        if node.index not in (0, self.num_orgs, self.pivot_pos) and self.params.skin_chain_falloff_twist:
-            index1 = 0
-            index2 = self.num_orgs
+        if node.index not in (0, self.num_orgs, self.pivot_pos):
+            index1, index2, factor = self.get_propagate_spec(node)
 
-            len_cur = self.chain_lengths[node.index]
-            len_end = self.chain_lengths[-1]
+            if self.params.skin_chain_falloff_twist:
+                self.rig_propagate_twist(mch, index1, index2, factor)
 
-            if self.pivot_pos:
-                len_pivot = self.chain_lengths[self.pivot_pos]
+            if self.use_scale and self.params.skin_chain_falloff_scale:
+                self.rig_propagate_scale(mch, index1, index2, factor)
 
-                if node.index < self.pivot_pos:
-                    factor = len_cur / len_pivot
-                    index2 = self.pivot_pos
-                else:
-                    factor = (len_cur - len_pivot) / (len_end - len_pivot)
-                    index1 = self.pivot_pos
+    def get_propagate_spec(self, node):
+        index1 = 0
+        index2 = self.num_orgs
+
+        len_cur = self.chain_lengths[node.index]
+        len_end = self.chain_lengths[-1]
+
+        if self.pivot_pos:
+            len_pivot = self.chain_lengths[self.pivot_pos]
+
+            if node.index < self.pivot_pos:
+                factor = len_cur / len_pivot
+                index2 = self.pivot_pos
             else:
-                factor = len_cur / len_end
+                factor = (len_cur - len_pivot) / (len_end - len_pivot)
+                index1 = self.pivot_pos
+        else:
+            factor = len_cur / len_end
 
-            handles = self.get_all_mch_handles()
-            handles_pre = self.get_all_mch_handles_pre()
+        return index1, index2, factor
 
-            variables = {
-                'y1': driver_var_transform(
-                    self.obj, handles[index1], type='ROT_Y',
-                    space='LOCAL', rotation_mode='SWING_TWIST_Y'
-                ),
-                'y2': driver_var_transform(
-                    self.obj, handles[index2], type='ROT_Y',
-                    space='LOCAL', rotation_mode='SWING_TWIST_Y'
-                ),
-            }
+    def rig_propagate_twist(self, mch, index1, index2, factor):
+        handles = self.get_all_mch_handles()
+        handles_pre = self.get_all_mch_handles_pre()
 
-            if handles_pre[index1] != handles[index1]:
-                variables['p1'] = driver_var_transform(
-                    self.obj, handles_pre[index1], type='ROT_Y',
-                    space='LOCAL', rotation_mode='SWING_TWIST_Y'
-                )
-                expr1 = 'y1-p1'
-            else:
-                expr1 = 'y1'
+        variables = {
+            'y1': driver_var_transform(
+                self.obj, handles[index1], type='ROT_Y',
+                space='LOCAL', rotation_mode='SWING_TWIST_Y'
+            ),
+            'y2': driver_var_transform(
+                self.obj, handles[index2], type='ROT_Y',
+                space='LOCAL', rotation_mode='SWING_TWIST_Y'
+            ),
+        }
 
-            if handles_pre[index2] != handles[index2]:
-                variables['p2'] = driver_var_transform(
-                    self.obj, handles_pre[index2], type='ROT_Y',
-                    space='LOCAL', rotation_mode='SWING_TWIST_Y'
-                )
-                expr2 = 'y2-p2'
-            else:
-                expr2 = 'y2'
-
-            bone = self.get_bone(mch)
-            bone.rotation_mode = 'YXZ'
-
-            self.make_driver(
-                bone, 'rotation_euler', index=1,
-                expression='lerp({},{},{})'.format(expr1, expr2, clamp(factor)),
-                variables=variables
+        if handles_pre[index1] != handles[index1]:
+            variables['p1'] = driver_var_transform(
+                self.obj, handles_pre[index1], type='ROT_Y',
+                space='LOCAL', rotation_mode='SWING_TWIST_Y'
             )
+            expr1 = 'y1-p1'
+        else:
+            expr1 = 'y1'
 
+        if handles_pre[index2] != handles[index2]:
+            variables['p2'] = driver_var_transform(
+                self.obj, handles_pre[index2], type='ROT_Y',
+                space='LOCAL', rotation_mode='SWING_TWIST_Y'
+            )
+            expr2 = 'y2-p2'
+        else:
+            expr2 = 'y2'
+
+        bone = self.get_bone(mch)
+        bone.rotation_mode = 'YXZ'
+
+        self.make_driver(
+            bone, 'rotation_euler', index=1,
+            expression='lerp({},{},{})'.format(expr1, expr2, clamp(factor)),
+            variables=variables
+        )
+
+    def rig_propagate_scale(self, mch, index1, index2, factor, use_y=False):
+        handles = self.get_all_mch_handles()
+
+        self.make_constraint(
+            mch, 'COPY_SCALE', handles[index1], space='LOCAL',
+            use_x=True, use_y=use_y, use_z=True,
+            use_offset=True, power=clamp(1-factor)
+        )
+        self.make_constraint(
+            mch, 'COPY_SCALE', handles[index2], space='LOCAL',
+            use_x=True, use_y=use_y, use_z=True,
+            use_offset=True, power=clamp(factor)
+        )
 
     ####################################################
     # SETTINGS
@@ -291,6 +316,12 @@ class Rig(BasicChainRig):
             description='Propagate twist from main controls throughout the chain',
         )
 
+        params.skin_chain_falloff_scale = bpy.props.BoolProperty(
+            name='Propagate Scale',
+            default=False,
+            description='Propagate scale from main controls throughout the chain',
+        )
+
         ControlLayersOption.SKIN_PRIMARY.add_parameters(params)
         ControlLayersOption.SKIN_SECONDARY.add_parameters(params)
 
@@ -312,7 +343,12 @@ class Rig(BasicChainRig):
             row2.prop(params, "skin_chain_falloff_spherical", text="", icon='SPHERECURVE', index=i)
 
         col.prop(params, "skin_chain_falloff_length")
-        col.prop(params, "skin_chain_falloff_twist")
+
+        row = col.split(factor=0.25)
+        row.label(text="Propagate:")
+        row = row.row(align=True)
+        row.prop(params, "skin_chain_falloff_twist", text="Twist", toggle=True)
+        row.prop(params, "skin_chain_falloff_scale", text="Scale", toggle=True)
 
         ControlLayersOption.SKIN_PRIMARY.parameters_ui(layout, params)
 
