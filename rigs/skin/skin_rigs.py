@@ -456,8 +456,57 @@ class LazyRef:
             return first(*self.args)
 
         for item in self.args:
-            first = getattr(first, item)
+            if isinstance(first, (dict, list)):
+                first = first[item]
+            else:
+                first = getattr(first, item)
+
         return first
+
+
+class ControlBoneParentArmature(LazyRigComponent):
+    """Control node parent generator using Armature to parent the bone."""
+
+    def __init__(self, rig, node, *, bones, orientation=None, copy_scale=None, copy_rotation=None):
+        super().__init__(rig)
+        self.node = node
+        self.orientation = orientation
+        self.bones = bones
+        self.copy_scale = copy_scale
+        self.copy_rotation = copy_rotation
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, ControlBoneParentArmature) and
+            self.node.point == other.node.point and
+            self.orientation == other.orientation and
+            self.bones == other.bones and
+            self.copy_scale == other.copy_scale and
+            self.copy_rotation == other.copy_rotation
+        )
+
+    def generate_bones(self):
+        self.output_bone = self.node.make_bone(make_derived_name(self.node.name, 'mch', '_arm'), 1/4, rig=self.owner)
+
+        self.owner.generator.disable_auto_parent(self.output_bone)
+
+        if self.orientation:
+            matrix = force_lazy(self.orientation).to_matrix().to_4x4()
+            matrix.translation = self.node.point
+            self.get_bone(self.output_bone).matrix = matrix
+
+    def rig_bones(self):
+        self.make_constraint(
+            self.output_bone, 'ARMATURE', targets=force_lazy(self.bones),
+            use_deform_preserve_volume=True
+        )
+
+        self.make_constraint(self.output_bone, 'LIMIT_ROTATION')
+
+        if self.copy_scale:
+            self.make_constraint(self.output_bone, 'COPY_SCALE', self.copy_scale)
+        if self.copy_rotation:
+            self.make_constraint(self.output_bone, 'COPY_ROTATION', self.copy_rotation)
 
 
 class ControlBoneParentLayer(LazyRigComponent):
