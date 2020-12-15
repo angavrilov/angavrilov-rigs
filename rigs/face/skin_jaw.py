@@ -24,6 +24,7 @@ import math
 from rigify.utils.naming import make_derived_name, Side, SideZ, get_name_side_z
 from rigify.utils.bones import align_bone_z_axis, put_bone
 from rigify.utils.misc import map_list, matrix_from_axis_pair
+from rigify.utils.widgets_basic import create_circle_widget
 
 from rigify.rigs.widgets import create_jaw_widget
 
@@ -95,6 +96,14 @@ class Rig(BaseSkinRig):
         if self.chain_to_layer is not None:
             return
 
+        # Index child node corners
+        for child in self.child_chains:
+            for node in child.control_nodes:
+                corner = self.is_corner_node(node)
+                if corner:
+                    if node.merged_master not in self.corners[corner]:
+                        self.corners[corner].append(node.merged_master)
+
         self.num_layers = len(self.corners[SideZ.TOP])
 
         for k, v in self.corners.items():
@@ -118,6 +127,7 @@ class Rig(BaseSkinRig):
 
         matrix = self.mouth_orientation.to_matrix().to_4x4()
         matrix.translation = center
+        self.mouth_space = matrix
         self.to_mouth_space = matrix.inverted()
 
         # Build a mapping of child chain to layer
@@ -164,15 +174,44 @@ class Rig(BaseSkinRig):
             if (self.to_mouth_space @ node.point).x * self.left_sign >= 0:
                 self.raise_error("Bad right corner {}", node.name)
 
+        # Find layer radius
+        self.layer_radius = [
+            (self.corners[Side.LEFT][i].point - self.corners[Side.RIGHT][i].point).length
+            for i in range(self.num_layers)
+        ]
+
+    def position_mouth_bone(self, name, scale):
+        self.arrange_child_chains()
+
+        bone = self.get_bone(name)
+        bone.matrix = self.mouth_space
+        bone.length = (self.corners[Side.LEFT][0].point - self.corners[Side.RIGHT][0].point).length * scale
+
     def get_node_parent_bones(self, node):
         self.arrange_child_chains()
 
+        # Choose correct layer bones
         layer = self.chain_to_layer[node.rig]
 
+        top_mch = LazyRef(self.bones.mch, 'top_out', layer)
+        bottom_mch = LazyRef(self.bones.mch, 'bottom_out', layer)
+        middle_mch = LazyRef(self.bones.mch, 'middle_out', layer)
+
+        # Corners have one input
+        corner = self.is_corner_node(node)
+        if corner:
+            if corner == SideZ.TOP:
+                return [ top_mch ]
+            elif corner == SideZ.BOTTOM:
+                return [ bottom_mch ]
+            else:
+                return [ middle_mch ]
+
+        # Otherwise blend two
         if node.rig in self.chain_sides[SideZ.TOP]:
-            side_mch = self.bones.mch.top[layer]
+            side_mch = top_mch
         else:
-            side_mch = self.bones.mch.bottom[layer]
+            side_mch = bottom_mch
 
         pt_x = (self.to_mouth_space @ node.point).x
         side = Side.LEFT if pt_x * self.left_sign >= 0 else Side.RIGHT
@@ -180,19 +219,7 @@ class Rig(BaseSkinRig):
         corner_x = (self.to_mouth_space @ self.corners[side][layer].point).x
         factor = math.sqrt(1 - clamp(pt_x / corner_x) ** 2)
 
-        return [ (side_mch, factor), (self.bones.mch.middle[layer], 1-factor) ]
-
-    def get_corner_parent_bone(self, node, side_z):
-        self.arrange_child_chains()
-
-        layer = self.chain_to_layer[node.rig]
-
-        if side_z == SideZ.TOP:
-            return self.bones.mch.top[layer]
-        elif side_z == SideZ.BOTTOM:
-            return self.bones.mch.bottom[layer]
-        else:
-            return self.bones.mch.middle[layer]
+        return [ (side_mch, factor), (middle_mch, 1-factor) ]
 
 
     ####################################################
@@ -202,9 +229,9 @@ class Rig(BaseSkinRig):
         if parent_bone == self.base_bone:
             side = get_name_side_z(name)
             if side == SideZ.TOP:
-                return LazyRef(self.bones.mch, 'top', 0)
+                return LazyRef(self.bones.mch, 'top', -1)
             if side == SideZ.BOTTOM:
-                return LazyRef(self.bones.mch, 'bottom', 0)
+                return LazyRef(self.bones.mch, 'bottom', -1)
 
         return parent_bone
 
@@ -213,21 +240,12 @@ class Rig(BaseSkinRig):
 
     def build_control_node_parent(self, node, parent_bone):
         if node.rig in self.child_chains:
-            corner = self.is_corner_node(node)
-            if corner:
-                if node.merged_master not in self.corners[corner]:
-                    self.corners[corner].append(node.merged_master)
-
-                side = SideZ.MIDDLE if corner in {Side.LEFT, Side.RIGHT} else corner
-
-                return ControlBoneParentOrg(LazyRef(self.get_corner_parent_bone, node.merged_master, side))
-
-            else:
-                return ControlBoneParentArmature(
-                    self, node,
-                    bones=LazyRef(self.get_node_parent_bones, node),
-                    orientation=self.mouth_orientation,
-                )
+            return ControlBoneParentArmature(
+                self, node,
+                bones=self.get_node_parent_bones(node),
+                orientation=self.mouth_orientation,
+                copy_scale=LazyRef(self.bones.mch, 'mouth_parent'),
+            )
 
         return ControlBoneParentOrg(self.get_parent_for_name(node.name, parent_bone))
 
@@ -251,6 +269,30 @@ class Rig(BaseSkinRig):
     def make_master_control_widget(self):
         ctrl = self.bones.ctrl.master
         create_jaw_widget(self.obj, ctrl)
+
+
+    ####################################################
+    # Mouth control
+
+    @stage.generate_bones
+    def make_mouth_control(self):
+        org = self.bones.org
+        name = self.copy_bone(org, make_derived_name(org, 'ctrl', '_mouth'))
+        self.position_mouth_bone(name, 1)
+        self.bones.ctrl.mouth = name
+
+    @stage.parent_bones
+    def parent_mouth_control(self):
+        self.set_bone_parent(self.bones.ctrl.mouth, self.bones.mch.mouth_parent)
+
+    @stage.configure_bones
+    def configure_mouth_control(self):
+        pass
+
+    @stage.generate_widgets
+    def make_mouth_control_widget(self):
+        ctrl = self.bones.ctrl.mouth
+        create_circle_widget(self.obj, ctrl, radius=0.6, head_tail=0.1)
 
 
     ####################################################
@@ -293,7 +335,7 @@ class Rig(BaseSkinRig):
     def configure_mch_lock_bones(self):
         ctrl = self.bones.ctrl
 
-        panel = self.script.panel_with_selected_check(self, [ctrl.master])
+        panel = self.script.panel_with_selected_check(self, [ctrl.master, ctrl.mouth])
 
         self.make_property(ctrl.master, 'mouth_lock', 0.0, description='Mouth is locked closed')
         panel.custom_prop(ctrl.master, 'mouth_lock', text='Mouth Lock', slider=True)
@@ -334,6 +376,72 @@ class Rig(BaseSkinRig):
         for mid, bottom in zip(mch.middle, mch.bottom):
             self.make_constraint(mid, 'COPY_TRANSFORMS', bottom, influence=0.5)
 
+
+    ####################################################
+    # Mouth MCH
+
+    @stage.generate_bones
+    def make_mch_mouth_bones(self):
+        mch = self.bones.mch
+
+        mch.mouth_parent = self.make_mch_mouth_bone(0, '_mouth_parent', 3/4)
+
+        mch.mouth_layers = map_list(self.make_mch_mouth_bone, range(1, self.num_layers), repeat('_mouth_layer'), repeat(0.6))
+
+        mch.top_in = map_list(self.make_mch_mouth_inout_bone, range(self.num_layers), repeat('_top_in'), repeat(0.55))
+        mch.bottom_in = map_list(self.make_mch_mouth_inout_bone, range(self.num_layers), repeat('_bottom_in'), repeat(0.5))
+        mch.middle_in = map_list(self.make_mch_mouth_inout_bone, range(self.num_layers), repeat('_middle_in'), repeat(0.45))
+
+        mch.top_out = map_list(self.make_mch_mouth_inout_bone, range(self.num_layers), repeat('_top_out'), repeat(0.4))
+        mch.bottom_out = map_list(self.make_mch_mouth_inout_bone, range(self.num_layers), repeat('_bottom_out'), repeat(0.35))
+        mch.middle_out = map_list(self.make_mch_mouth_inout_bone, range(self.num_layers), repeat('_middle_out'), repeat(0.3))
+
+    def make_mch_mouth_bone(self, i, suffix, size):
+        name = self.copy_bone(self.bones.org, make_derived_name(self.bones.org, 'mch', suffix))
+        self.position_mouth_bone(name, size)
+        return name
+
+    def make_mch_mouth_inout_bone(self, i, suffix, size):
+        return self.copy_bone(self.bones.org, make_derived_name(self.bones.org, 'mch', suffix), scale=size)
+
+    @stage.parent_bones
+    def parent_mch_mouth_bones(self):
+        mch = self.bones.mch
+        layers = [self.bones.ctrl.mouth, *mch.mouth_layers]
+
+        self.set_bone_parent(mch.mouth_parent, mch.middle[0])
+
+        for name in mch.mouth_layers + mch.top_in + mch.bottom_in + mch.middle_in:
+            self.set_bone_parent(name, mch.mouth_parent)
+
+        for top, bottom, middle, parent in zip(mch.top_out, mch.bottom_out, mch.middle_out, layers):
+            self.set_bone_parent(top, parent)
+            self.set_bone_parent(bottom, parent)
+            self.set_bone_parent(middle, parent)
+
+    @stage.rig_bones
+    def rig_mch_mouth_bones(self):
+        mch = self.bones.mch
+        ctrl = self.bones.ctrl.mouth
+
+        for i, name in enumerate(mch.mouth_layers):
+            self.rig_mch_mouth_layer_bone(i+1, name, ctrl)
+
+        for dest, src in zip(mch.top_in + mch.bottom_in + mch.middle_in, mch.top + mch.bottom + mch.middle):
+            self.make_constraint(dest, 'COPY_TRANSFORMS', src)
+
+        for dest, src in zip(mch.top_out + mch.bottom_out + mch.middle_out, mch.top_in + mch.bottom_in + mch.middle_in):
+            self.make_constraint(dest, 'COPY_TRANSFORMS', src, space='LOCAL')
+
+    def rig_mch_mouth_layer_bone(self, i, mch, ctrl):
+        inf = self.params.jaw_secondary_influence ** i
+
+        self.make_constraint(mch, 'COPY_LOCATION', ctrl, influence=inf)
+        self.make_constraint(mch, 'COPY_ROTATION', ctrl, influence=inf)
+
+        inf_scale = inf * self.layer_radius[0] / self.layer_radius[i]
+
+        self.make_constraint(mch, 'COPY_SCALE', ctrl, influence=inf_scale)
 
     ####################################################
     # ORG bone
