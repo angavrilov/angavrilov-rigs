@@ -97,8 +97,6 @@ class Rig(BaseSkinRig):
 
         self.num_layers = len(self.corners[SideZ.TOP])
 
-        print(self.num_layers, self.corners[SideZ.TOP])
-
         for k, v in self.corners.items():
             if len(v) == 0:
                 self.raise_error("Could not find all mouth corners")

@@ -146,7 +146,7 @@ class Rig(BaseSkinRig):
         return parent
 
     def extend_mid_node_parent(self, parent, node):
-        parent = ControlBoneParentOffset.wrap(self, parent, node)
+        parent = ControlBoneParentOffset(self, node, parent)
         parent.add_copy_local_location(
             LazyRef(self.bones.mch, 'track'),
             influence=LazyRef(self.get_lid_follow_influence, node)
@@ -161,7 +161,7 @@ class Rig(BaseSkinRig):
                 # Use custom space to accomodate scaling
                 space='CUSTOM', space_object=self.obj, space_subtarget=self.bones.org,
             )
-            parent.final = True
+            parent.is_parent_frozen = True
 
         return parent
 

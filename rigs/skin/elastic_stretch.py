@@ -130,7 +130,7 @@ class Rig(BaseSkinRig):
         self.make_driver(bone, quote_property('g'), expression='sqrt(tx*tx+ty*ty)', variables=variables)
 
     def extend_control_node_parent(self, parent, node):
-        parent = ControlBoneParentOffset.wrap(self, parent, node)
+        parent = ControlBoneParentOffset(self, node, parent)
 
         pos = self.transform_space @ node.point
 

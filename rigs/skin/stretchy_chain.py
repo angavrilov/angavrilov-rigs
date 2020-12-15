@@ -145,7 +145,7 @@ class Rig(BasicChainRig):
         if node.rig != self or node.index in (0, self.num_orgs):
             return parent
 
-        parent = ControlBoneParentOffset.wrap(self, parent, node)
+        parent = ControlBoneParentOffset(self, node, parent)
         factor = self.get_pivot_projection(node.point, node.index)
 
         if self.use_falloff_curve(0):
@@ -173,7 +173,7 @@ class Rig(BasicChainRig):
 
         if node.index != self.pivot_pos and self.params.skin_chain_falloff_to_controls:
             if self.params.skin_chain_falloff_twist or self.params.skin_chain_falloff_scale:
-                parent = ControlBoneChainPropagate(self, parent, node)
+                parent = ControlBoneChainPropagate(self, node, parent)
 
         return parent
 
@@ -382,19 +382,19 @@ class ControlBoneChainPropagate(ControlBoneWeakParentLayer):
         return (
             isinstance(other, ControlBoneChainPropagate) and
             self.parent == other.parent and
-            self.owner == other.owner and
+            self.rig == other.rig and
             self.node.index == other.node.index
         )
 
     def generate_bones(self):
-        handle = self.owner.bones.mch.handles[self.node.index]
+        handle = self.rig.bones.mch.handles[self.node.index]
         self.output_bone = self.copy_bone(handle, make_derived_name(handle, 'mch', '_parent'))
 
     def parent_bones(self):
         self.set_bone_parent(self.output_bone, self.parent.output_bone, inherit_scale='AVERAGE')
 
     def rig_bones(self):
-        self.owner.rig_propagate(self.output_bone, self.node)
+        self.rig.rig_propagate(self.output_bone, self.node)
 
 
 def create_sample(obj):

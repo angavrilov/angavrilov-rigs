@@ -147,6 +147,7 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
             self.parent_subrig_cache = []
             self.parent_subrig_names = {}
             self.reparent_requests = []
+            self.used_parents = {}
 
         super().merge_done()
 
@@ -182,7 +183,7 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
 
         return None
 
-    def build_parent_for_node(self, node):
+    def build_parent_for_node(self, node, use_parent=False):
         assert self.rig.generator.stage == 'initialize'
 
         # Build the parent
@@ -195,19 +196,32 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
         for rig in parents:
             result = rig.extend_control_node_parent_post(result, node)
 
-        # Remove duplicates
+        result = self.intern_parent(node, result)
+        result.is_parent_frozen = True
+
+        if use_parent:
+            self.register_use_parent(result)
+
+        return result
+
+    def intern_parent(self, node, parent):
+        if id(parent) in self.parent_subrig_names:
+            return parent
+
         cache = self.parent_subrig_cache
 
         for previous in cache:
-            if previous == result:
-                result = previous
-                break
-        else:
-            cache.append(result)
-            result.enable_component()
-            self.parent_subrig_names[id(result)] = node.name
+            if previous == parent:
+                previous.is_parent_frozen = True
+                return previous
 
-        return result
+        cache.append(parent)
+        self.parent_subrig_names[id(parent)] = node.name
+
+        if isinstance(parent, ControlBoneParentLayer):
+            parent.parent = self.intern_parent(node, parent.parent)
+
+        return parent
 
     def build_parent(self):
         if not self.node_parent:
@@ -215,9 +229,19 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
 
         return self.node_parent
 
+    def register_use_parent(self, parent):
+        parent.is_parent_frozen = True
+        self.merged_master.used_parents[id(parent)] = parent
+
     def request_reparent(self, parent):
-        requests = self.merged_master.reparent_requests
+        master = self.merged_master
+        requests = master.reparent_requests
+
         if parent not in requests:
+            if parent != master.node_parent or master.use_mix_parent:
+                master.register_use_parent(master.node_parent)
+
+            master.register_use_parent(parent)
             requests.append(parent)
 
     def get_rotation(self):
@@ -256,13 +280,26 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
                 self.use_mix_parent = True
 
             self.has_weak_parent = isinstance(self.node_parent, ControlBoneWeakParentLayer)
+            self.node_parent_base = ControlBoneWeakParentLayer.strip(self.node_parent)
+
             self.node_parent_list = [ ControlBoneWeakParentLayer.strip(p) for p in self.node_parent_list ]
+
+            for parent in self.node_parent_list:
+                self.register_use_parent(parent)
 
         # All nodes
         if self.node_needs_parent or self.node_needs_reparent:
             parent = self.build_parent()
             if self.node_needs_reparent:
                 self.request_reparent(parent)
+
+    def prepare_bones(self):
+        # Activate parent components once all reparents are registered
+        if self.is_master_node:
+            for parent in self.used_parents.values():
+                parent.enable_component()
+
+            self.used_parents = None
 
     @property
     def control_bone(self):
@@ -412,8 +449,25 @@ class ControlQueryNode(QueryMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
         return self.merged_master.control_bone
 
 
+class ControlBoneParentBase(LazyRigComponent):
+    rigify_sub_object_run_late = True
+
+    # This parent cannot be merged with other wrappers?
+    is_parent_frozen = False
+
+    def __init__(self, rig, node):
+        super().__init__(node)
+        self.rig = rig
+        self.node = node
+
+    def __eq__(self, other):
+        raise NotImplementedError()
+
+
 class ControlBoneParentOrg:
     """Control node parent generator wrapping a single ORG bone."""
+
+    is_parent_frozen = True
 
     def __init__(self, org):
         self._output_bone = org
@@ -464,14 +518,13 @@ class LazyRef:
         return first
 
 
-class ControlBoneParentArmature(LazyRigComponent):
+class ControlBoneParentArmature(ControlBoneParentBase):
     """Control node parent generator using Armature to parent the bone."""
 
     def __init__(self, rig, node, *, bones, orientation=None, copy_scale=None, copy_rotation=None):
-        super().__init__(rig)
-        self.node = node
-        self.orientation = orientation
+        super().__init__(rig, node)
         self.bones = bones
+        self.orientation = orientation
         self.copy_scale = copy_scale
         self.copy_rotation = copy_rotation
 
@@ -486,9 +539,9 @@ class ControlBoneParentArmature(LazyRigComponent):
         )
 
     def generate_bones(self):
-        self.output_bone = self.node.make_bone(make_derived_name(self.node.name, 'mch', '_arm'), 1/4, rig=self.owner)
+        self.output_bone = self.node.make_bone(make_derived_name(self.node.name, 'mch', '_arm'), 1/4, rig=self.rig)
 
-        self.owner.generator.disable_auto_parent(self.output_bone)
+        self.rig.generator.disable_auto_parent(self.output_bone)
 
         if self.orientation:
             matrix = force_lazy(self.orientation).to_matrix().to_4x4()
@@ -509,17 +562,14 @@ class ControlBoneParentArmature(LazyRigComponent):
             self.make_constraint(self.output_bone, 'COPY_ROTATION', self.copy_rotation)
 
 
-class ControlBoneParentLayer(LazyRigComponent):
-    rigify_sub_object_run_late = True
-
-    def __init__(self, rig, parent, node):
-        super().__init__(rig)
+class ControlBoneParentLayer(ControlBoneParentBase):
+    def __init__(self, rig, node, parent):
+        super().__init__(rig, node)
         self.parent = parent
-        self.node = node
 
     def enable_component(self):
-        super().enable_component()
         self.parent.enable_component()
+        super().enable_component()
 
 
 class ControlBoneWeakParentLayer(ControlBoneParentLayer):
@@ -543,19 +593,45 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
     """
 
     @classmethod
-    def wrap(cls, owner, parent, *constructor_args):
-        if isinstance(parent, ControlBoneParentOffset) and not parent.final:
-            return parent
+    def wrap(cls, owner, parent, node, *constructor_args):
+        return cls(owner, node, parent, *constructor_args)
 
-        return cls(owner, parent, *constructor_args)
-
-    def __init__(self, rig, parent, node):
-        super().__init__(rig, parent, node)
-        self.final = False
+    def __init__(self, rig, node, parent):
+        super().__init__(rig, node, parent)
         self.copy_local = {}
         self.add_local = {}
         self.add_orientations = {}
         self.limit_distance = []
+
+    def enable_component(self):
+        while isinstance(self.parent, ControlBoneParentOffset) and not self.parent.is_parent_frozen:
+            self.prepend_contents(self.parent)
+            self.parent = self.parent.parent
+
+        super().enable_component()
+
+    def prepend_contents(self, other):
+        for key, val in other.copy_local.items():
+            if key not in self.copy_local:
+                self.copy_local[key] = val
+            else:
+                inf, expr, cbs = val
+                inf0, expr0, cbs0 = self.copy_local[key]
+                self.copy_local[key] = [inf+inf0, expr+expr0, cbs+cbs0]
+
+        for key, val in other.add_orientations.items():
+            if key not in self.add_orientations:
+                self.add_orientations[key] = val
+
+        for key, val in other.add_local.items():
+            if key not in self.add_local:
+                self.add_local[key] = val
+            else:
+                ot0, ot1, ot2 = val
+                my0, my1, my2 = self.add_local[key]
+                self.add_local[key] = (ot0+my0, ot1+my1, ot2+my2)
+
+        self.limit_distance = other.limit_distance + self.limit_distance
 
     def add_copy_local_location(self, target, *, influence=1, influence_expr=None, influence_vars={}):
         if target not in self.copy_local:
@@ -597,20 +673,31 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
 
     def generate_bones(self):
         self.mch_bones = []
+        self.reuse_mch = False
 
         if self.copy_local or self.add_local or self.limit_distance:
             mch_name = make_derived_name(self.node.name, 'mch', '_poffset')
 
             if self.add_local:
                 for key in self.add_local:
-                    self.mch_bones.append(self.node.make_bone(mch_name, 1/4, rig=self.owner, orientation=self.add_orientations[key]))
+                    self.mch_bones.append(self.node.make_bone(mch_name, 1/4, rig=self.rig, orientation=self.add_orientations[key]))
             else:
-                self.mch_bones.append(self.node.make_bone(mch_name, 1/4, rig=self.owner))
+                # Try piggybacking on the parent bone if allowed
+                if not self.parent.is_parent_frozen:
+                    bone = self.get_bone(self.parent.output_bone)
+                    if (bone.head - self.node.point).length < 1e-5:
+                        self.reuse_mch = True
+                        self.mch_bones = [ bone.name ]
+                        return
+
+                self.mch_bones.append(self.node.make_bone(mch_name, 1/4, rig=self.rig))
 
     def parent_bones(self):
         if self.mch_bones:
-            self.owner.set_bone_parent(self.mch_bones[0], self.parent.output_bone)
-            self.owner.parent_bone_chain(self.mch_bones, use_connect=False)
+            if not self.reuse_mch:
+                self.rig.set_bone_parent(self.mch_bones[0], self.parent.output_bone)
+
+            self.rig.parent_bone_chain(self.mch_bones, use_connect=False)
 
     def compile_driver(self, items):
         variables = {}
@@ -623,7 +710,7 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
             try:
                 template.substitute({k:'' for k in varset})
             except Exception as e:
-                self.owner.raise_error('Invalid driver expression: {}\nError: {}', expr, e)
+                self.rig.raise_error('Invalid driver expression: {}\nError: {}', expr, e)
 
             # Merge variables
             for name, desc in varset.items():
