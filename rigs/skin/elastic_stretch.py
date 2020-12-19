@@ -30,7 +30,7 @@ from rigify.utils.mechanism import quote_property, driver_var_transform
 from rigify.utils.naming import make_derived_name
 from rigify.utils.bones import align_bone_orientation, align_bone_to_axis, align_bone_roll
 from rigify.utils.widgets_basic import create_circle_widget
-from rigify.utils.misc import map_list
+from rigify.utils.misc import map_list, force_lazy
 
 from rigify.base_rig import stage
 
@@ -46,11 +46,21 @@ class Rig(BaseSkinRig):
     def initialize(self):
         super().initialize()
 
+        self.make_control = self.params.make_control
+
+        if self.make_control:
+            self.input_ref = LazyRef(self.bones.ctrl, 'master')
+        else:
+            self.input_ref = self.base_bone
+
         bone = self.get_bone(self.base_bone)
         matrix = bone.bone.matrix_local
 
         self.transform_orientation = matrix.to_quaternion()
         self.transform_space = matrix.inverted()
+
+    ####################################################
+    # Control Nodes
 
     def build_control_node_parent(self, node, parent_bone):
         return self.build_control_node_parent_next(node)
@@ -72,62 +82,87 @@ class Rig(BaseSkinRig):
 
     @stage.generate_bones
     def make_master_control(self):
-        self.bones.ctrl.master = self.copy_bone(self.bones.org, make_derived_name(self.bones.org, 'ctrl'), parent=True)
+        if self.make_control:
+            self.bones.ctrl.master = self.copy_bone(self.bones.org, make_derived_name(self.bones.org, 'ctrl'), parent=True)
 
     @stage.configure_bones
     def configure_master_control(self):
-        self.copy_bone_properties(self.bones.org, self.bones.ctrl.master)
+        if self.make_control:
+            self.copy_bone_properties(self.bones.org, self.bones.ctrl.master)
 
-        # Lock Y scale since it's not used
-        bone = self.get_bone(self.bones.ctrl.master)
-        bone.lock_scale[1] = True
-        bone.lock_rotation = (True, True, True)
-        bone.lock_rotation_w = True
+            # Lock Y scale since it's not used
+            bone = self.get_bone(self.bones.ctrl.master)
+            bone.lock_scale[1] = True
+            bone.lock_rotation = (True, True, True)
+            bone.lock_rotation_w = True
 
     @stage.rig_bones
     def rig_master_control(self):
-        # Scaling above 10x causes folds to form
-        self.make_constraint(
-            self.bones.ctrl.master, 'LIMIT_SCALE',
-            max_x=10, max_y=10, max_z=10, owner_space='LOCAL',
-            use_transform_limit=True,
-        )
+        if self.make_control:
+            # Scaling above this causes folds to form
+            self.make_constraint(
+                self.bones.ctrl.master, 'LIMIT_SCALE',
+                max_x=self.max_scale, max_y=self.max_scale, max_z=self.max_scale, owner_space='LOCAL',
+                use_transform_limit=True,
+            )
 
     @stage.generate_widgets
     def make_master_control_widget(self):
-        ctrl = self.bones.ctrl.master
-        radius = self.params.skin_elastic_scale_radius
-        bone = self.get_bone(ctrl)
+        if self.make_control:
+            ctrl = self.bones.ctrl.master
+            radius = self.params.skin_elastic_scale_radius
+            bone = self.get_bone(ctrl)
 
-        create_circle_widget(self.obj, ctrl, radius=radius/self.get_bone(ctrl).length)
+            create_circle_widget(self.obj, ctrl, radius=radius/self.get_bone(ctrl).length)
 
     ####################################################
     # Scale mechanism
+
+    @stage.initialize
+    def init_scale_params1(self):
+        self.eps = EPS_MIN
+        self.k_list = [1, 3.55, 11] # x 1.9, 3.5
+        self.blends = [
+            '(-2.381*$f-20.883*atan($f*0.29)+17.191*atan($f*0.491))/(4.976*atan($f*0.491)-13.578*atan($f*0.29)-11.655*$f)',
+            '(-1.033*atan($f*0.29)+0.378*atan($f*0.49)+0.114*$f)/$f',
+        ]
+        self.max_scale = 35
+
+    #@stage.initialize
+    def init_scale_params2(self):
+        self.eps = 1
+        self.k_list = [1, 3.6, 12] # x 1.5, 2.5
+        self.blends = [
+            '(-2.654*$f+11.758*atan($f*0.485)-15.159*atan($f*0.378))/(-9.938*$f+2.868*atan($f*0.485)-10.105*atan($f*0.378))',
+            '(0.134*$f+0.250*atan($f*0.485)-0.881*atan($f*0.378))/$f',
+        ]
+        self.max_scale = 30
 
     @stage.configure_bones
     def make_scale_properties(self):
         org = self.bones.org
         bone = self.get_bone(org)
-        ctrl = self.bones.ctrl.master
+        input_bone = force_lazy(self.input_ref)
 
         bone['s'] = 0.0
         bone['p'] = 0.0
-        bone['g'] = 0.0
+        bone['f'] = 0.0
 
         variables = {
-            'sx': driver_var_transform(self.obj, self.bones.ctrl.master, type='SCALE_X', space='LOCAL'),
-            'sy': driver_var_transform(self.obj, self.bones.ctrl.master, type='SCALE_Z', space='LOCAL'),
+            'sx': driver_var_transform(self.obj, input_bone, type='SCALE_X', space='LOCAL'),
+            'sy': driver_var_transform(self.obj, input_bone, type='SCALE_Z', space='LOCAL'),
         }
 
         self.make_driver(bone, quote_property('s'), expression='sx+sy-2', variables=variables)
         self.make_driver(bone, quote_property('p'), expression='sx-sy', variables=variables)
 
         variables = {
-            'tx': driver_var_transform(self.obj, self.bones.ctrl.master, type='LOC_X', space='LOCAL'),
-            'ty': driver_var_transform(self.obj, self.bones.ctrl.master, type='LOC_Z', space='LOCAL'),
+            **variables,
+            'tx': driver_var_transform(self.obj, input_bone, type='LOC_X', space='LOCAL'),
+            'ty': driver_var_transform(self.obj, input_bone, type='LOC_Z', space='LOCAL'),
         }
 
-        self.make_driver(bone, quote_property('g'), expression='sqrt(tx*tx+ty*ty)', variables=variables)
+        self.make_driver(bone, quote_property('f'), expression='max(1e-5,(sx+sy-2)/2+sqrt(tx*tx+ty*ty))', variables=variables)
 
     def extend_control_node_parent(self, parent, node):
         parent = ControlBoneParentOffset(self, node, parent)
@@ -138,42 +173,29 @@ class Rig(BaseSkinRig):
         radius = self.params.skin_elastic_scale_radius
         poissons_ratio = 0.3
 
-        mat1 = compute_scale_pinch_matrix(pos.x, pos.z, radius, poissons_ratio, EPS_MIN)
-        mat2 = compute_scale_pinch_matrix(pos.x, pos.z, radius, poissons_ratio, 5)
-
-        trf_weight1 = compute_translate_weight(pos.x, pos.z, radius, EPS_MIN)
-        trf_weight2 = compute_translate_weight(pos.x, pos.z, radius, 5)
+        mats = [ compute_scale_pinch_matrix(pos.x, pos.z, radius, poissons_ratio, self.eps * k) for k in self.k_list ]
+        trf_weights = [ compute_translate_weight(pos.x, pos.z, radius, self.eps * k) for k in self.k_list ]
 
         # Apply scale & pinch drivers
         variables = {
             's': (LazyRef(self.bones, 'org'), 's'),
             'p': (LazyRef(self.bones, 'org'), 'p'),
-            'g': (LazyRef(self.bones, 'org'), 'g'),
+            'f': (LazyRef(self.bones, 'org'), 'f'),
         }
 
-        # Solution for the first minimum touching the 0.1 compression plane at 10x scale
-        max_blend = 20
-        expt = 0.5765756146
-        coeff = 0.2359836090 / (max_blend ** expt)
+        exprs_x = [ '%f*$s+%f*$p' % (mat[0][0], mat[0][1]) for mat in mats ]
+        exprs_y = [ '%f*$s+%f*$p' % (mat[1][0], mat[1][1]) for mat in mats ]
 
-        expr_x = 'lerp(%f*$s+%f*$p,%f*$s+%f*$p,%f*pow(clamp($s,0,%d),%f))' % (
-            mat1[0][0], mat1[0][1], mat2[0][0], mat2[0][1], coeff, max_blend, expt)
-        expr_y = 'lerp(%f*$s+%f*$p,%f*$s+%f*$p,%f*pow(clamp($s,0,%d),%f))' % (
-            mat1[1][0], mat1[1][1], mat2[1][0], mat2[1][1], coeff, max_blend, expt)
-
-        parent.add_location_driver(self.transform_orientation, 0, expr_x, variables)
-        parent.add_location_driver(self.transform_orientation, 2, expr_y, variables)
+        parent.add_location_driver(self.transform_orientation, 0, lerp_mix(exprs_x, self.blends), variables)
+        parent.add_location_driver(self.transform_orientation, 2, lerp_mix(exprs_y, self.blends), variables)
 
         # Add translate control for center (not a true grab brush, just falloff matching scale)
-        ctrl = LazyRef(self.bones.ctrl, 'master')
-
-        if trf_weight1 >= 1 and trf_weight2 >= 1:
-            parent.add_copy_local_location(ctrl)
+        if all(w >= 1 for w in trf_weights):
+            parent.add_copy_local_location(self.input_ref)
         else:
-            expr_i = 'lerp(%f,%f,%f*pow(clamp($s+2*$g,0,%d),%f))' % (
-                trf_weight1, trf_weight2, coeff, max_blend, expt)
+            expr_i = lerp_mix(map(str, trf_weights), self.blends)
 
-            parent.add_copy_local_location(ctrl, influence_expr=expr_i, influence_vars=variables)
+            parent.add_copy_local_location(self.input_ref, influence_expr=expr_i, influence_vars=variables)
 
         return parent
 
@@ -189,6 +211,12 @@ class Rig(BaseSkinRig):
 
     @classmethod
     def add_parameters(self, params):
+        params.make_control = bpy.props.BoolProperty(
+            name        = "Control",
+            default     = True,
+            description = "Create a control bone for the copy"
+        )
+
         params.skin_elastic_scale_radius = bpy.props.FloatProperty(
             name='Exact Scale Radius',
             default=1,
@@ -198,8 +226,8 @@ class Rig(BaseSkinRig):
 
     @classmethod
     def parameters_ui(self, layout, params):
-        r = layout.row()
-        r.prop(params, "skin_elastic_scale_radius")
+        layout.prop(params, "make_control", text="Generate Control")
+        layout.prop(params, "skin_elastic_scale_radius")
 
 
 # This value gives maximum scale offset at exactly radius (radius ring radially unscaled)
@@ -241,3 +269,9 @@ def compute_translate_weight(x, y, exact_radius, brush_radius):
     e2 = brush_radius * brush_radius
 
     return r * (e2 + 1) * (e2 + 1) * (2*e2 + r2) / (2*e2 + 1) / (e2 + r2) / (e2 + r2)
+
+def lerp_mix(items, weights):
+    cur, *rest = items
+    for item, weight in zip(rest, weights):
+        cur = 'lerp(%s,%s,%s)' % (cur, item, weight)
+    return cur
