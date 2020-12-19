@@ -36,7 +36,7 @@ from rigify.utils.misc import map_list
 
 from rigify.base_rig import stage
 
-from .skin_rigs import BaseSkinChainRigWithRotationOption, ControlBoneNode, get_bone_quaternion
+from .skin_rigs import BaseSkinChainRigWithRotationOption, ControlBoneNode, ControlNodeEnd, get_bone_quaternion
 
 
 class Rig(BaseSkinChainRigWithRotationOption):
@@ -93,9 +93,11 @@ class Rig(BaseSkinChainRigWithRotationOption):
         bone = self.get_bone(org)
         name = make_derived_name(org, 'ctrl', '_end' if is_end else '')
         pos = bone.tail if is_end else bone.head
+        chain_end = ControlNodeEnd.START if i == 0 else ControlNodeEnd.END if is_end else ControlNodeEnd.MIDDLE
         return ControlBoneNode(
             self, org, name, point=pos, size=self.length/3, index=i,
             allow_scale=self.use_scale, needs_reparent=self.use_reparent_handles,
+            chain_end=chain_end,
         )
 
     def make_control_node_widget(self, node):
@@ -319,10 +321,11 @@ class Rig(BaseSkinChainRigWithRotationOption):
     def rig_deform_bone(self, i, deform, org):
         self.make_constraint(deform, 'COPY_TRANSFORMS', org)
 
-        if i == 0 and self.prev_corner > 1e-3:
-            self.make_corner_driver(deform, 'bbone_easein', self.control_nodes[0], self.control_nodes[1], self.prev_node, self.prev_corner)
-        elif i == self.num_orgs-1 and self.next_corner > 1e-3:
-            self.make_corner_driver(deform, 'bbone_easeout', self.control_nodes[-1], self.control_nodes[-2], self.next_node, self.next_corner)
+        if self.use_bbones:
+            if i == 0 and self.prev_corner > 1e-3:
+                self.make_corner_driver(deform, 'bbone_easein', self.control_nodes[0], self.control_nodes[1], self.prev_node, self.prev_corner)
+            elif i == self.num_orgs-1 and self.next_corner > 1e-3:
+                self.make_corner_driver(deform, 'bbone_easeout', self.control_nodes[-1], self.control_nodes[-2], self.next_node, self.next_corner)
 
     def make_corner_driver(self, bbone, field, corner_node, next_node1, next_node2, angle):
         pbone = self.get_bone(bbone)

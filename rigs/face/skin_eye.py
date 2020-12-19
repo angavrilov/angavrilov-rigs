@@ -436,7 +436,12 @@ class EyeClusterControl(RigComponent):
         bone = self.get_bone(name)
         bone.matrix = self.matrix
         bone.length = self.size
+        bone.layers = self.get_master_control_layers()
         return name
+
+    def get_master_control_layers(self):
+        all_layers = [ list(self.get_bone(rig.base_bone).layers) for rig in self.rig_list ]
+        return [ any(items) for items in zip(*all_layers) ]
 
     def make_child_control(self, rig):
         name = rig.copy_bone(rig.base_bone, make_derived_name(rig.base_bone, 'ctrl'), length=self.size)
@@ -603,8 +608,8 @@ def generate_circle_hull_geometry(verts, edges, points, radius, gap, *, matrix=N
 def create_eyes_widget(verts, edges, *, size=1, points):
     hpoints = [points[i] for i in mathutils.geometry.convex_hull_2d(points)]
 
-    generate_circle_hull_geometry(verts, edges, hpoints, size*3/4, size/2)
-    generate_circle_hull_geometry(verts, edges, hpoints, size, size*3/4)
+    generate_circle_hull_geometry(verts, edges, hpoints, size*0.75, size*0.6)
+    generate_circle_hull_geometry(verts, edges, hpoints, size, size*0.85)
 
 
 def create_sample(obj):

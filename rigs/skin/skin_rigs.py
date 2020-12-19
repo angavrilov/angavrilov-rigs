@@ -51,6 +51,10 @@ class ControlNodeIcon(enum.IntEnum):
     FREE         = 2
     CUSTOM       = 3
 
+class ControlNodeEnd(enum.IntEnum):
+    START        = -1
+    MIDDLE       = 0
+    END          = 1
 
 def _get_parent_rigs(rig):
     result = []
@@ -68,6 +72,7 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
     def __init__(
         self, rig, org, name, *, point=None, size=None,
         needs_parent=False, needs_reparent=False, allow_scale=False,
+        chain_end=ControlNodeEnd.MIDDLE,
         layer=ControlNodeLayer.FREE, index=None, icon=ControlNodeIcon.TWEAK,
         ):
         assert isinstance(rig, BaseSkinChainRig)
@@ -85,6 +90,7 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
         self.layer = layer
         self.icon = icon
         self.rotation = None
+        self.chain_end = chain_end
 
         # Parent mechanism generator for this node
         self.node_parent = None
@@ -327,15 +333,29 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
 
         return name
 
+    def find_master_name_node(self):
+        # Chain end nodes have sub-par names, so try to find another chain
+        if self.chain_end == ControlNodeEnd.END:
+            siblings = [
+                node for node in self.get_merged_siblings()
+                if self.mirror_sides_x.issubset(node.mirror_sides_x)
+                and self.mirror_sides_z.issubset(node.mirror_sides_z)
+            ]
+
+            candidates = [ node for node in siblings if node.chain_end == ControlNodeEnd.START ]
+
+            if not candidates:
+                candidates = [ node for node in siblings if node.chain_end == ControlNodeEnd.MIDDLE ]
+
+            if candidates:
+                return min(candidates, key=lambda c: (-c.rig.chain_priority, c.name_merged))
+
+        return self
+
     def generate_bones(self):
         if self.is_master_node:
             # Make control bone
-            name = self.name_merged
-
-            if self.hide_control:
-                name = make_derived_name(name, 'mch')
-
-            self._control_bone = self.make_bone(name, 1)
+            self._control_bone = self.make_master_bone()
 
             # Make mix parent if needed
             self.reparent_bones = {}
@@ -356,6 +376,15 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
 
             if self.use_weak_parent:
                 self.weak_parent_bone = self.make_bone(make_derived_name(self._control_bone, 'mch', '_weak_parent'), 1/2)
+
+    def make_master_bone(self):
+        choice = self.find_master_name_node()
+        name = choice.name_merged
+
+        if self.hide_control:
+            name = make_derived_name(name, 'mch')
+
+        return choice.make_bone(name, 1)
 
     def parent_bones(self):
         if self.is_master_node:

@@ -25,7 +25,7 @@ from rigify.utils.widgets import layout_widget_dropdown, create_registered_widge
 
 from rigify.base_rig import stage
 
-from .skin_rigs import BaseSkinChainRigWithRotationOption, ControlBoneNode, ControlNodeIcon
+from .skin_rigs import BaseSkinChainRigWithRotationOption, ControlBoneNode, ControlNodeIcon, ControlNodeEnd
 
 from rigify.rigs.basic.raw_copy import RelinkConstraintsMixin
 
@@ -52,7 +52,7 @@ class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
         org = self.bones.org
         name = make_derived_name(org, 'ctrl')
 
-        self.control_node = node = ControlBoneNode(self, org, name, icon=ControlNodeIcon.CUSTOM)
+        self.control_node = node = ControlBoneNode(self, org, name, icon=ControlNodeIcon.CUSTOM, chain_end=ControlNodeEnd.START)
 
         node.hide_control = self.params.skin_anchor_hide
 
