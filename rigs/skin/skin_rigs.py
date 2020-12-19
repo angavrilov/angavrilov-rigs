@@ -577,18 +577,34 @@ class ControlBoneParentArmature(ControlBoneParentBase):
             matrix.translation = self.node.point
             self.get_bone(self.output_bone).matrix = matrix
 
+    def parent_bones(self):
+        self.targets = force_lazy(self.bones)
+
+        assert len(self.targets) > 0
+
+        if len(self.targets) == 1:
+            target = force_lazy(self.targets[0])
+            if isinstance(target, tuple):
+                target = target[0]
+
+            self.set_bone_parent(
+                self.output_bone, target,
+                inherit_scale='NONE' if self.copy_scale else 'FIX_SHEAR'
+            )
+
     def rig_bones(self):
-        self.make_constraint(
-            self.output_bone, 'ARMATURE', targets=force_lazy(self.bones),
-            use_deform_preserve_volume=True
-        )
+        if len(self.targets) > 1:
+            self.make_constraint(
+                self.output_bone, 'ARMATURE', targets=force_lazy(self.bones),
+                use_deform_preserve_volume=True
+            )
 
-        self.make_constraint(self.output_bone, 'LIMIT_ROTATION')
+            self.make_constraint(self.output_bone, 'LIMIT_ROTATION')
 
-        if self.copy_scale:
-            self.make_constraint(self.output_bone, 'COPY_SCALE', self.copy_scale)
         if self.copy_rotation:
             self.make_constraint(self.output_bone, 'COPY_ROTATION', self.copy_rotation)
+        if self.copy_scale:
+            self.make_constraint(self.output_bone, 'COPY_SCALE', self.copy_scale)
 
 
 class ControlBoneParentLayer(ControlBoneParentBase):
