@@ -556,6 +556,8 @@ class ControlBoneParentArmature(ControlBoneParentBase):
         self.orientation = orientation
         self.copy_scale = copy_scale
         self.copy_rotation = copy_rotation
+        if copy_scale or copy_rotation:
+            self.is_parent_frozen = True
 
     def __eq__(self, other):
         return (
@@ -920,6 +922,9 @@ class BaseSkinChainRigWithRotationOption(BaseSkinChainRig):
         if bone_name:
             try:
                 org_name = make_derived_name(bone_name, 'org')
+
+                if org_name not in self.obj.pose.bones:
+                    org_name = bone_name
 
                 return get_bone_quaternion(self.obj, org_name)
 

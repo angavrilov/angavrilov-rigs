@@ -275,7 +275,7 @@ class Rig(SimpleChainRig):
     @stage.generate_widgets
     def make_master_control_widget(self):
         master_name = self.bones.ctrl.master
-        create_gear_widget(self.obj, master_name, size=5.0)
+        create_gear_widget(self.obj, master_name, radius=0.5)
 
     ##############################
     # Twist controls

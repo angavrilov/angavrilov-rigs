@@ -31,7 +31,7 @@ from rigify.utils.bones import is_connected_position
 from rigify.utils.naming import strip_org, make_derived_name
 from rigify.utils.misc import map_list
 from rigify.utils.switch_parent import SwitchParentBuilder
-from rigify.utils.widgets_basic import create_bone_widget
+from rigify.utils.widgets_basic import create_shoulder_widget
 
 from rigify.base_rig import stage, BaseRig
 from rigify.base_generate import SubstitutionRig
@@ -114,7 +114,7 @@ class Rig(BaseRig):
 
         self.get_bone(ctrl).custom_shape_transform = self.get_bone(self.bones.org)
 
-        create_bone_widget(self.obj, ctrl, r1=0.25, l1=0.1, r2=0.2, l2=0.8)
+        create_shoulder_widget(self.obj, ctrl)
 
     ####################################################
     # Deform bone
