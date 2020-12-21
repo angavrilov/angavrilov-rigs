@@ -21,6 +21,7 @@
 import bpy
 
 from rigify.utils.naming import make_derived_name
+from rigify.utils.mechanism import copy_custom_properties_with_ui
 from rigify.utils.widgets import layout_widget_dropdown, create_registered_widget
 
 from rigify.base_rig import stage
@@ -61,12 +62,16 @@ class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
 
     def extend_control_node_rig(self, node):
         if node.rig == self:
-            self.copy_bone_properties(self.bones.org, node.control_bone)
+            org = self.bones.org
 
-            self.relink_bone_constraints(self.bones.org)
+            self.copy_bone_properties(org, node.control_bone, props=False)
+
+            copy_custom_properties_with_ui(self, org, node.control_bone, ui_controls=[node.control_bone])
+
+            self.relink_bone_constraints(org)
 
             # Move constraints to the control
-            org_bone = self.get_bone(self.bones.org)
+            org_bone = self.get_bone(org)
             ctl_bone = self.get_bone(node.control_bone)
 
             for con in list(org_bone.constraints):
