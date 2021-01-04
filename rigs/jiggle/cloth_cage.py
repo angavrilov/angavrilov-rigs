@@ -324,11 +324,13 @@ class MESH_OT_rigify_add_jiggle_cloth_cage(bpy.types.Operator):
         for item in sk.data:
             item.co[2] += item.co[1] * 0.2;
 
-    def add_cloth_sim(self, obj):
+    def add_cloth_sim(self, obj, size):
         mod = obj.modifiers.new(name='Cloth', type='CLOTH')
 
         make_driver(mod, 'show_viewport', variables=[(obj, obj, 'option_physics')])
         make_driver(mod, 'show_render', variables=[(obj, obj, 'option_physics')])
+
+        k = 0.1 / size
 
         cs = mod.settings
 
@@ -339,11 +341,11 @@ class MESH_OT_rigify_add_jiggle_cloth_cage(bpy.types.Operator):
         cs.tension_stiffness = 0.1
         cs.compression_stiffness = 0.05
         cs.shear_stiffness = 0.01
-        cs.bending_stiffness = 1
+        cs.bending_stiffness = 1 * k
 
-        cs.tension_damping = 0.5
-        cs.compression_damping = 0.5
-        cs.shear_damping = 0.5
+        cs.tension_damping = 0.5 * k
+        cs.compression_damping = 0.5 * k
+        cs.shear_damping = 0.5 * k
         cs.bending_damping = 0.5
 
         cs.use_internal_springs = True
@@ -351,8 +353,8 @@ class MESH_OT_rigify_add_jiggle_cloth_cage(bpy.types.Operator):
         cs.internal_compression_stiffness = 0.001
 
         cs.use_pressure = True
-        cs.pressure_factor = 400
-        cs.fluid_density = 20
+        cs.pressure_factor = 400 * k * k
+        cs.fluid_density = 20 * k * k * k
 
         cs.shrink_min = 0.05
         cs.vertex_group_mass = "pin"
@@ -363,7 +365,7 @@ class MESH_OT_rigify_add_jiggle_cloth_cage(bpy.types.Operator):
         cs.vertex_group_shear_stiffness = "stiffness"
         cs.shear_stiffness_max = 0.2
         cs.vertex_group_bending = "stiffness"
-        cs.bending_stiffness_max = 24
+        cs.bending_stiffness_max = 24 * k
 
         return cs
 
@@ -441,7 +443,7 @@ class MESH_OT_rigify_add_jiggle_cloth_cage(bpy.types.Operator):
 
         obj.modifiers.new(name='Armature', type='ARMATURE')
 
-        cs = self.add_cloth_sim(obj)
+        cs = self.add_cloth_sim(obj, size)
 
         # Shape keys
         obj.shape_key_add(name='basis')

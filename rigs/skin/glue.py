@@ -22,6 +22,7 @@ import bpy
 
 from rigify.utils.naming import make_derived_name
 from rigify.utils.widgets_basic import create_cube_widget
+from rigify.utils.mechanism import move_all_constraints
 
 from rigify.base_rig import stage
 
@@ -107,13 +108,7 @@ class Rig(BaseSkinRig, RelinkConstraintsMixin):
                     use_offset=True, influence=inf
                 )
 
-        # Move constraints to the control
-        org_bone = self.get_bone(org)
-        ctl_bone = self.get_bone(ctrl)
-
-        for con in list(org_bone.constraints):
-            ctl_bone.constraints.copy(con)
-            org_bone.constraints.remove(con)
+        move_all_constraints(self.obj, org, ctrl)
 
     def find_relink_target(self, spec, old_target):
         if self.use_tail and (spec == 'TARGET' or spec == '' == old_target):
