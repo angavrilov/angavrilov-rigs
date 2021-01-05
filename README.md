@@ -3,8 +3,12 @@
 This provides a set of experimental Rigify rig types, some of which may be
 included in Rigify in the future.
 
-Use `Code > Download ZIP` to obtain a ZIP archive of the code, and install it as
-a Feature Set through the Rigify Add-On settings.
+For the latest version that often requires the nightly master build of Blender,
+use `Code > Download ZIP` to obtain a ZIP archive of the code, and install it
+as a Feature Set through the Rigify Add-On settings.
+
+Older versions are listed as [Tags](https://github.com/angavrilov/angavrilov-rigs/tags)
+with matching .zip download links.
 
 ## Limb Rigs
 
