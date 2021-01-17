@@ -502,6 +502,7 @@ class MESH_OT_rigify_add_jiggle_shapekey_anchor(bpy.types.Operator):
         anchor_copy = anchor.copy()
         anchor_copy.name = anchor.name + '-SHAPE'
         anchor_copy.parent = cage_copy
+        anchor_copy.matrix_parent_inverse = anchor.matrix_parent_inverse
         anchor_copy.hide_render = True
 
         context.collection.objects.link(cage_copy)
