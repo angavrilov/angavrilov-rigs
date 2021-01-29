@@ -226,14 +226,18 @@ class Rig(BaseSkinRig):
         controls = sum((chain.get_all_controls() for chain in self.child_chains), ctrl.flatten())
         panel = self.script.panel_with_selected_check(self, controls)
 
-        self.make_property(
-            ctrl.target, 'lid_follow', list(self.params.eyelid_follow_default),
-            description='Eylids follow eye movement (X and Z)'
-        )
+        if self.params.eyelid_follow_split:
+            self.make_property(
+                ctrl.target, 'lid_follow', list(self.params.eyelid_follow_default),
+                description='Eylids follow eye movement (X and Z)'
+            )
 
-        row = panel.split(factor=0.66, align=True)
-        row.custom_prop(ctrl.target, 'lid_follow', index=0, text='Eyelids Follow', slider=True)
-        row.custom_prop(ctrl.target, 'lid_follow', index=1, text='', slider=True)
+            row = panel.split(factor=0.66, align=True)
+            row.custom_prop(ctrl.target, 'lid_follow', index=0, text='Eyelids Follow', slider=True)
+            row.custom_prop(ctrl.target, 'lid_follow', index=1, text='', slider=True)
+        else:
+            self.make_property(ctrl.target, 'lid_follow', 1.0, description='Eylids follow eye movement')
+            panel.custom_prop(ctrl.target, 'lid_follow', text='Eyelids Follow', slider=True)
 
         if self.params.eyelid_detach_option:
             self.make_property(ctrl.target, 'lid_attach', 1.0, description='Eylids follow eye surface')
@@ -247,19 +251,32 @@ class Rig(BaseSkinRig):
 
         self.make_constraint(mch.master, 'DAMPED_TRACK', ctrl.target)
 
-        con = self.make_constraint(
+        con_x = self.make_constraint(
             mch.track, 'COPY_LOCATION', mch.master, head_tail=1, name='lid_follow_x',
             use_xyz=(True, False, False),
             space='CUSTOM', space_object=self.obj, space_subtarget=self.bones.org,
         )
-        self.make_driver(con, 'influence', variables=[(ctrl.target, 'lid_follow', 0)])
 
-        con = self.make_constraint(
+        con_z = self.make_constraint(
             mch.track, 'COPY_LOCATION', mch.master, head_tail=1, name='lid_follow_z',
             use_xyz=(False, False, True),
             space='CUSTOM', space_object=self.obj, space_subtarget=self.bones.org,
         )
-        self.make_driver(con, 'influence', variables=[(ctrl.target, 'lid_follow', 1)])
+
+        if self.params.eyelid_follow_split:
+            self.make_driver(con_x, 'influence', variables=[(ctrl.target, 'lid_follow', 0)])
+            self.make_driver(con_z, 'influence', variables=[(ctrl.target, 'lid_follow', 1)])
+        else:
+            factor = self.params.eyelid_follow_default
+
+            self.make_driver(
+                con_x, 'influence', expression='var*{}'.format(factor[0]),
+                variables=[(ctrl.target, 'lid_follow')]
+            )
+            self.make_driver(
+                con_z, 'influence', expression='var*{}'.format(factor[1]),
+                variables=[(ctrl.target, 'lid_follow')]
+            )
 
 
     ####################################################
@@ -319,6 +336,12 @@ class Rig(BaseSkinRig):
             description = "Create an option to detach eyelids from the distance constraint"
         )
 
+        params.eyelid_follow_split = bpy.props.BoolProperty(
+            name        = "Split Eyelid Follow Slider",
+            default     = False,
+            description = "Create separate eyelid follow influence sliders for X and Z"
+        )
+
         params.eyelid_follow_default = bpy.props.FloatVectorProperty(
             size        = 2,
             name        = "Eyelids Follow Default",
@@ -332,9 +355,11 @@ class Rig(BaseSkinRig):
         col.prop(params, "make_deform", text="Eyball And Iris Deforms")
         col.prop(params, "eyelid_detach_option")
 
-        row = col.split(factor=0.66, align=True)
-        row.prop(params, "eyelid_follow_default", index=0, text="Eyelids Follow", slider=True)
-        row.prop(params, "eyelid_follow_default", index=1, text="", slider=True)
+        col.prop(params, "eyelid_follow_split")
+
+        row = col.row(align=True)
+        row.prop(params, "eyelid_follow_default", index=0, text="Follow X", slider=True)
+        row.prop(params, "eyelid_follow_default", index=1, text="Follow Z", slider=True)
 
 
 class ChainPatch(RigComponent):
@@ -506,10 +531,13 @@ class EyeClusterControl(RigComponent):
         if self.rig_count > 1:
             panel = self.owner.script.panel_with_selected_check(self.owner, [self.master_bone])
 
-            for child in self.child_bones:
-                row = panel.split(factor=0.66, align=True)
-                row.custom_prop(child, 'lid_follow', index=0, text='Eyelids Follow (%s)'%(child), slider=True)
-                row.custom_prop(child, 'lid_follow', index=1, text='', slider=True)
+            for child, child_rig in zip(self.child_bones, self.rig_list):
+                if child_rig.params.eyelid_follow_split:
+                    row = panel.split(factor=0.66, align=True)
+                    row.custom_prop(child, 'lid_follow', index=0, text='Eyelids Follow (%s)'%(child), slider=True)
+                    row.custom_prop(child, 'lid_follow', index=1, text='', slider=True)
+                else:
+                    panel.custom_prop(child, 'lid_follow', text='Eyelids Follow (%s)'%(child), slider=True)
 
     def generate_widgets(self):
         for child in self.child_bones:
