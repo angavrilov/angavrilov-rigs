@@ -242,7 +242,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         if pre != mch:
             self.make_constraint(
                 mch, 'COPY_TRANSFORMS', pre, name='copy_pre',
-                space='LOCAL', mix_mode='BEFORE_FULL',
+                space='LOCAL', mix_mode='BEFORE',
             )
 
         # Apply user rotation and scale
@@ -250,8 +250,8 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
         self.make_constraint(
             mch, 'COPY_TRANSFORMS', input_bone, name='copy_user',
-            target_space='OWNER_LOCAL', owner_space='LOCAL',
-            mix_mode='BEFORE_FULL',
+            target_space='LOCAL', owner_space='LOCAL',
+            mix_mode='BEFORE',
         )
 
         # Remove any shear created by previous step
@@ -310,8 +310,8 @@ class Rig(BaseSkinChainRigWithRotationOption):
                 bone.bbone_custom_handle_end = self.get_bone(end_handle)
 
                 if self.use_scale:
-                    bone.bbone_handle_scale_start = self.params.skin_chain_use_scale
-                    bone.bbone_handle_scale_end = self.params.skin_chain_use_scale
+                    bone.bbone_handle_use_scale_start = self.params.skin_chain_use_scale[:3]
+                    bone.bbone_handle_use_scale_end = self.params.skin_chain_use_scale[:3]
 
     @stage.rig_bones
     def rig_deform_chain(self):

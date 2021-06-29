@@ -104,7 +104,7 @@ class Rig(BaseSkinRig, RelinkConstraintsMixin):
             elif add_mode == 'COPY_LOCATION_OWNER':
                 self.make_constraint(
                     ctrl, 'COPY_LOCATION', target, insert_index=0,
-                    owner_space='LOCAL', target_space='OWNER_LOCAL',
+                    owner_space='LOCAL', target_space='LOCAL',
                     use_offset=True, influence=inf
                 )
 

@@ -800,7 +800,7 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
 
                 con = self.make_constraint(
                     mch, 'COPY_LOCATION', target, use_offset=True,
-                    target_space='OWNER_LOCAL', owner_space='LOCAL', influence=influence,
+                    target_space='LOCAL', owner_space='LOCAL', influence=influence,
                 )
 
                 if drivers:
