@@ -165,7 +165,7 @@ on the main mesh.
 These rigs implement a flexible system for rigging skin using multiple interacting
 B-Bone chains. This is developed as a replacement for the Rigify face rig.
 
-These rigs currently require a [custom build](https://builder.blender.org/download/temp-angavrilov-constraints/) of Blender due to pending patches.
+These rigs currently require the latest nightly build of Blender 3.0
 
 The core idea of the system is that deformation is implemented using a standard
 powerful B-Bone chain rig, while domain-specific rigs for the most part merely

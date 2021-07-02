@@ -250,7 +250,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
         self.make_constraint(
             mch, 'COPY_TRANSFORMS', input_bone, name='copy_user',
-            target_space='OWNER_LOCAL', owner_space='LOCAL',
+            target_space='LOCAL_OWNER_ORIENT', owner_space='LOCAL',
             mix_mode='BEFORE_FULL',
         )
 
@@ -310,8 +310,11 @@ class Rig(BaseSkinChainRigWithRotationOption):
                 bone.bbone_custom_handle_end = self.get_bone(end_handle)
 
                 if self.use_scale:
-                    bone.bbone_handle_scale_start = self.params.skin_chain_use_scale
-                    bone.bbone_handle_scale_end = self.params.skin_chain_use_scale
+                    bone.bbone_handle_use_scale_start = self.params.skin_chain_use_scale[0:3]
+                    bone.bbone_handle_use_scale_end = self.params.skin_chain_use_scale[0:3]
+
+                    bone.bbone_handle_use_ease_start = self.params.skin_chain_use_scale[3]
+                    bone.bbone_handle_use_ease_end = self.params.skin_chain_use_scale[3]
 
     @stage.rig_bones
     def rig_deform_chain(self):
@@ -415,7 +418,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         row = row.row(align=True)
         row.prop(params, "skin_chain_use_scale", index=0, text="X", toggle=True)
         row.prop(params, "skin_chain_use_scale", index=1, text="Y", toggle=True)
-        row.prop(params, "skin_chain_use_scale", index=2, text="Len", toggle=True)
+        row.prop(params, "skin_chain_use_scale", index=2, text="Z", toggle=True)
         row.prop(params, "skin_chain_use_scale", index=3, text="Ease", toggle=True)
 
         row = col.split(factor=0.3)

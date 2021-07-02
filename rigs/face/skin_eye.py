@@ -315,7 +315,7 @@ class Rig(BaseSkinRig):
         if self.params.make_deform:
             self.make_constraint(
                 self.bones.deform.iris, 'COPY_SCALE', self.bones.ctrl.target,
-                owner_space='LOCAL', target_space='OWNER_LOCAL', use_y=False,
+                owner_space='LOCAL', target_space='LOCAL_OWNER_ORIENT', use_y=False,
             )
 
 

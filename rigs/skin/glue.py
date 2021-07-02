@@ -104,7 +104,7 @@ class Rig(BaseSkinRig, RelinkConstraintsMixin):
             elif add_mode == 'COPY_LOCATION_OWNER':
                 self.make_constraint(
                     ctrl, 'COPY_LOCATION', target, insert_index=0,
-                    owner_space='LOCAL', target_space='OWNER_LOCAL',
+                    owner_space='LOCAL', target_space='LOCAL_OWNER_ORIENT',
                     use_offset=True, influence=inf
                 )
 
@@ -153,9 +153,9 @@ class Rig(BaseSkinRig, RelinkConstraintsMixin):
                            ('COPY_LOCATION', 'Copy Location (Local)',
                             "Add a constraint to copy Local Location with Offset. If the owner and target control "+
                             "rest orientations are different, the global movement direction will change accordingly"),
-                           ('COPY_LOCATION_OWNER', 'Copy Location (Owner Local)',
-                            "Add a constraint to copy Owner Local Location with Offset. Even if the owner and target "+
-                            "controls have different rest orientations, the global movement direction would be the same")],
+                           ('COPY_LOCATION_OWNER', 'Copy Location (Local, Owner Orientation)',
+                            "Add a constraint to copy Local Location (Owner Orientation) with Offset. Even if the owner and "+
+                            "target controls have different rest orientations, the global movement direction would be the same")],
             default     = 'NONE',
             description = "Add one of the common constraints linking the control to the tail target",
         )
