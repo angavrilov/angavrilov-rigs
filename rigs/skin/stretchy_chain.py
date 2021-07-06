@@ -28,12 +28,12 @@ from rigify.utils.rig import connected_children_names
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.naming import make_derived_name
 from rigify.utils.bones import align_bone_orientation, align_bone_to_axis, align_bone_roll
-from rigify.utils.misc import map_list
+from rigify.utils.misc import map_list, LazyRef
 from rigify.utils.mechanism import driver_var_transform
 
 from rigify.base_rig import stage
 
-from .skin_rigs import ControlBoneNode, ControlNodeLayer, ControlNodeIcon, ControlBoneWeakParentLayer, ControlBoneParentOffset, LazyRef
+from .skin_rigs import ControlBoneNode, ControlNodeLayer, ControlNodeIcon, ControlBoneWeakParentLayer, ControlBoneParentOffset
 from .basic_chain import Rig as BasicChainRig
 
 

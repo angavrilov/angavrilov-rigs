@@ -26,10 +26,11 @@ from mathutils import Vector, Matrix
 
 from rigify.utils.naming import make_derived_name
 from rigify.utils.widgets_basic import create_cube_widget
+from rigify.utils.misc import LazyRef
 
 from rigify.base_rig import stage
 
-from ..skin_rigs import BaseSkinRig, ControlBoneParentArmature, LazyRef
+from ..skin_rigs import BaseSkinRig, ControlBoneParentArmature
 
 
 class Rig(BaseSkinRig):

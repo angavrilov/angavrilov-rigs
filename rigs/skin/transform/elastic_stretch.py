@@ -30,11 +30,11 @@ from rigify.utils.mechanism import quote_property, driver_var_transform
 from rigify.utils.naming import make_derived_name
 from rigify.utils.bones import align_bone_orientation, align_bone_to_axis, align_bone_roll
 from rigify.utils.widgets_basic import create_circle_widget
-from rigify.utils.misc import map_list, force_lazy
+from rigify.utils.misc import map_list, force_lazy, LazyRef
 
 from rigify.base_rig import stage
 
-from ..skin_rigs import BaseSkinRig, ControlBoneParentOffset, LazyRef
+from ..skin_rigs import BaseSkinRig, ControlBoneParentOffset
 
 
 class Rig(BaseSkinRig):

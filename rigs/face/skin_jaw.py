@@ -23,14 +23,14 @@ import math
 
 from rigify.utils.naming import make_derived_name, Side, SideZ, get_name_side_z
 from rigify.utils.bones import align_bone_z_axis, put_bone
-from rigify.utils.misc import map_list, matrix_from_axis_pair
+from rigify.utils.misc import map_list, matrix_from_axis_pair, LazyRef
 from rigify.utils.widgets_basic import create_circle_widget
 
 from rigify.rigs.widgets import create_jaw_widget
 
 from rigify.base_rig import stage, RigComponent
 
-from ..skin.skin_rigs import BaseSkinRig, ControlBoneNode, ControlBoneParentOrg, ControlBoneParentArmature, LazyRef
+from ..skin.skin_rigs import BaseSkinRig, ControlBoneNode, ControlBoneParentOrg, ControlBoneParentArmature
 from ..skin.basic_chain import Rig as BasicChainRig
 
 import mathutils

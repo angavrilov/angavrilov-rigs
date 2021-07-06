@@ -26,11 +26,11 @@ from rigify.utils.bones import align_bone_z_axis, put_bone
 from rigify.utils.widgets import create_widget
 from rigify.utils.widgets_basic import create_circle_widget
 from rigify.utils.switch_parent import SwitchParentBuilder
-from rigify.utils.misc import map_list, matrix_from_axis_pair
+from rigify.utils.misc import map_list, matrix_from_axis_pair, LazyRef
 
 from rigify.base_rig import stage, RigComponent
 
-from ..skin.skin_rigs import BaseSkinRig, ControlBoneNode, ControlBoneParentOffset, LazyRef
+from ..skin.skin_rigs import BaseSkinRig, ControlBoneNode, ControlBoneParentOffset
 from ..skin.basic_chain import Rig as BasicChainRig
 
 import functools

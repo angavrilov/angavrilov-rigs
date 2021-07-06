@@ -33,11 +33,11 @@ from rigify.utils.naming import make_derived_name, get_name_base_and_sides, chan
 from rigify.utils.bones import align_bone_orientation, align_bone_to_axis, BoneUtilityMixin, set_bone_widget_transform
 from rigify.utils.widgets_basic import create_cube_widget, create_sphere_widget
 from rigify.utils.mechanism import MechanismUtilityMixin
-from rigify.utils.misc import force_lazy
+from rigify.utils.misc import force_lazy, LazyRef
 
 from rigify.base_rig import BaseRig, LazyRigComponent, stage
 
-from .node_merger import MainMergeNode, QueryMergeNode
+from rigify.utils.node_merger import MainMergeNode, QueryMergeNode
 
 
 class ControlNodeLayer(enum.IntEnum):
@@ -512,41 +512,6 @@ class ControlBoneParentOrg:
         return isinstance(other, ControlBoneParentOrg) and self._output_bone == other._output_bone
 
 
-class LazyRef:
-    """Hashable lazy reference to a bone. When called, evaluates (foo, 'a', 'b'...) as foo('a','b') or foo.a.b."""
-
-    def __init__(self, first, *args):
-        self.first = first
-        self.args = tuple(args)
-        self.first_hashable = first.__hash__ is not None
-
-    def __repr__(self):
-        return 'LazyRef{}'.format(tuple(self.first, *self.args))
-
-    def __eq__(self, other):
-        return (
-            isinstance(other, LazyRef) and
-            (self.first == other.first if self.first_hashable else self.first is other.first) and
-            self.args == other.args
-        )
-
-    def __hash__(self):
-        return (hash(self.first) if self.first_hashable else hash(id(self.first))) ^ hash(self.args)
-
-    def __call__(self):
-        first = self.first
-        if callable(first):
-            return first(*self.args)
-
-        for item in self.args:
-            if isinstance(first, (dict, list)):
-                first = first[item]
-            else:
-                first = getattr(first, item)
-
-        return first
-
-
 class ControlBoneParentArmature(ControlBoneParentBase):
     """Control node parent generator using Armature to parent the bone."""
 
@@ -945,89 +910,12 @@ class BaseSkinChainRigWithRotationOption(BaseSkinChainRig):
 
     @classmethod
     def parameters_ui(self, layout, params):
+        from rigify.operators.copy_mirror_parameters import make_copy_parameter_button
+
         row = layout.row()
         row.prop_search(params, "skin_control_orientation_bone", bpy.context.active_object.pose, "bones", text="Orientation")
 
-        props = row.operator(POSE_OT_RigifySkinSyncRotationIndex.bl_idname, icon='DUPLICATE', text='')
-        props.property_name = "skin_control_orientation_bone"
-        props.class_name = __name__ + ':BaseSkinChainRigWithRotationOption'
-        props.mirror_bone = True
-
-
-class POSE_OT_RigifySkinSyncRotationIndex(bpy.types.Operator):
-    """Upgrades metarig bones rigify_types"""
-
-    bl_idname = "pose.rigify_skin_sync_rotation_index"
-    bl_label = "Copy Option To Selected Rigs"
-    bl_description = 'Set all selected metarigs of the same type to this property value'
-    bl_options = {'UNDO'}
-
-    property_name: bpy.props.StringProperty(name='Property Name')
-    rig_type: bpy.props.StringProperty(name='Rig Name:BaseClass')
-    class_name: bpy.props.StringProperty(name='Module:Class', default='')
-    mirror_bone: bpy.props.BoolProperty(name='Mirror Bone Name')
-
-    @classmethod
-    def poll(cls, context):
-        return (
-            context.active_object and context.active_object.type == 'ARMATURE'
-            and context.active_pose_bone
-            and context.active_object.data.get("rig_id") is None
-            and get_rigify_type(context.active_pose_bone)
+        make_copy_parameter_button(
+            row, "skin_control_orientation_bone", mirror_bone=True,
+            base_class=BaseSkinChainRigWithRotationOption
         )
-
-    def invoke(self, context, event):
-        return context.window_manager.invoke_confirm(self, event)
-
-    def execute(self, context):
-        import rigify.rig_lists as rig_lists
-
-        if self.class_name:
-            import importlib
-            module_name, class_name = self.class_name.split(':')
-
-            try:
-                filter_rig_class = getattr(importlib.import_module(module_name), class_name)
-            except (KeyError, AttributeError, ImportError):
-                self.report({'ERROR'}, 'Invalid class spec: ' + self.class_name)
-                return {'CANCELLED'}
-        else:
-            items = self.rig_type.split(':')
-
-            try:
-                filter_rig_class = rig_lists.rigs[items[0]]["module"].Rig
-            except (KeyError, AttributeError):
-                self.report({'ERROR'}, 'Invalid rig type: ' + items[0])
-                return {'CANCELLED'}
-
-            if len(items) > 1:
-                bases = { c.__name__: c for c in type.mro(filter_rig_class) }
-                if items[1] not in bases:
-                    self.report({'ERROR'}, 'Invalid rig base class: ' + items[1])
-                    return {'CANCELLED'}
-
-                filter_rig_class = bases[items[1]]
-
-        pbone = context.active_pose_bone
-        value = getattr(pbone.rigify_parameters, self.property_name)
-        name_split = get_name_base_and_sides(pbone.name)
-
-        for sel_pbone in context.selected_pose_bones:
-            rig_type = get_rigify_type(sel_pbone)
-            if rig_type and sel_pbone != pbone:
-                try:
-                    rig_class = rig_lists.rigs[rig_type]["module"].Rig
-                except (KeyError, AttributeError):
-                    continue
-
-                if issubclass(rig_class, filter_rig_class):
-                    new_value = value
-
-                    if self.mirror_bone and name_split[1] != Side.MIDDLE and value:
-                        sel_split = get_name_base_and_sides(sel_pbone.name)
-                        if sel_split[1] == -name_split[1]:
-                            new_value = mirror_name(value)
-
-                    setattr(sel_pbone.rigify_parameters, self.property_name, new_value)
-
-        return {'FINISHED'}
