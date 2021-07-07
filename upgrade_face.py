@@ -81,7 +81,8 @@ def process_all(process):
     process('brow.B.L.003')
 
     # ,connect_ends=True,sharpen=(120,120))
-    process('lid.T.L', parent='eye.L', sec_layer=1, rig='skin.stretchy_chain', middle=2)
+    process('lid.T.L', parent='eye.L', sec_layer=1, rig='skin.stretchy_chain', middle=2,
+            spherical=(False, True, False))
     process('lid.T.L.001')
     process('lid.T.L.002')
     process('lid.T.L.003')
@@ -97,7 +98,8 @@ def process_all(process):
     process('brow.B.R.003')
 
     # ,connect_ends=True,sharpen=(120,120))
-    process('lid.T.R', parent='eye.R', sec_layer=1, rig='skin.stretchy_chain', middle=2)
+    process('lid.T.R', parent='eye.R', sec_layer=1, rig='skin.stretchy_chain', middle=2,
+            spherical=(False, True, False))
     process('lid.T.R.001')
     process('lid.T.R.002')
     process('lid.T.R.003')
@@ -161,7 +163,8 @@ def process_all(process):
     process('tongue.002')
 
     # New bones
-    process('jaw_master', layer=0, parent='face', rig='face.skin_jaw')
+    process('jaw_master', layer=0, parent='face', rig='face.skin_jaw',
+            params={'jaw_mouth_influence': 1.0})
     process('nose_master', layer=0, parent='face', rig='basic.super_copy',
             params={'super_copy_widget_type': 'diamond', 'make_deform': False})
 
@@ -184,8 +187,9 @@ def process_all(process):
     process('nose_glue.L.001', parent='face', rig='skin.glue', glue_copy=0.2, glue_reparent=True)
     process('nose_glue.R.001', parent='face', rig='skin.glue', glue_copy=0.2, glue_reparent=True)
 
+    process('nose_glue.004', parent='face', rig='skin.glue', glue_copy=0.2, glue_reparent=True)
     process('nose_end_glue.004', parent='face', rig='skin.glue', glue_copy=0.5, glue_reparent=True)
-    process('chin_end_glue.001', parent='face', rig='skin.glue', glue_copy=0.5, glue_reparent=True)
+    process('chin_end_glue.001', parent='jaw_master', rig='skin.glue', glue_copy=0.5, glue_reparent=True)
 
 
 def make_new_bones(obj, name_map):
@@ -199,8 +203,10 @@ def make_new_bones(obj, name_map):
     name_map['jaw_master'] = bone.name
 
     bone = eb.new(name='nose_master')
-    bone.head = eb['nose.004'].head
-    bone.tail = bone.head + Vector((0, eb[face_bone].length/-4*1.5, 0))
+    bone.head = (eb['nose.L.001'].head + eb['nose.R.001'].head) / 2
+    nose_width = (eb['nose.L.001'].head - eb['nose.R.001'].head).length
+    nose_length = (eb['nose.001'].tail - bone.head).length
+    bone.tail = bone.head + Vector((0, -max(1.5 * nose_width, 2 * nose_length), 0))
     bone.roll = 0
     name_map['nose_master'] = bone.name
 
@@ -234,7 +240,7 @@ def make_new_bones(obj, name_map):
         bone = eb.new(name=name)
         bone.head = getattr(eb[from_name], from_end)
         bone.tail = getattr(eb[to_name], to_end)
-        bone.roll = (eb[from_name].roll + eb[to_name].roll) / 2 if roll == 'mix' else roll
+        bone.roll = (eb[from_name].roll + eb[to_name].roll) / 2 if roll == 'mix' else radians(roll)
         name_map[name] = bone.name
 
     def bridge_glue(name, from_name, to_name):
@@ -255,6 +261,7 @@ def make_new_bones(obj, name_map):
     bridge_glue('nose_glue.L.001', 'nose.L.001', 'lip.T.L.001')
     bridge_glue('nose_glue.R.001', 'nose.R.001', 'lip.T.R.001')
 
+    bridge('nose_glue.004', 'nose.004', 'head', 'lip.T.L', 'head', roll=45)
     bridge('nose_end_glue.004', 'nose.004', 'tail', 'lip.T.L', 'head', roll=45)
     bridge('chin_end_glue.001', 'chin.001', 'tail', 'lip.B.L', 'head', roll=45)
 
@@ -341,7 +348,7 @@ def set_rig(
             pbone.rigify_parameters.relink_constraints = True
             pbone.rigify_parameters.skin_glue_use_tail = True
             pbone.rigify_parameters.skin_glue_tail_reparent = glue_reparent
-            pbone.rigify_parameters.skin_glue_add_constraint = 'COPY_LOCATION'
+            pbone.rigify_parameters.skin_glue_add_constraint = 'COPY_LOCATION_OWNER'
             pbone.rigify_parameters.skin_glue_add_constraint_influence = glue_copy
 
         for k, v in params.items():
