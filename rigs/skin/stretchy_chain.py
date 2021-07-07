@@ -33,7 +33,8 @@ from rigify.utils.mechanism import driver_var_transform
 
 from rigify.base_rig import stage
 
-from .skin_rigs import ControlBoneNode, ControlNodeLayer, ControlNodeIcon, ControlBoneWeakParentLayer, ControlBoneParentOffset
+from .skin_nodes import ControlBoneNode, ControlNodeLayer, ControlNodeIcon
+from .skin_parents import ControlBoneWeakParentLayer, ControlBoneParentOffset
 from .basic_chain import Rig as BasicChainRig
 
 

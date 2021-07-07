@@ -30,7 +30,10 @@ from rigify.utils.misc import map_list, matrix_from_axis_pair, LazyRef
 
 from rigify.base_rig import stage, RigComponent
 
-from ..skin.skin_rigs import BaseSkinRig, ControlBoneNode, ControlBoneParentOffset
+from ..skin.skin_nodes import ControlBoneNode
+from ..skin.skin_parents import ControlBoneParentOffset
+from ..skin.skin_rigs import BaseSkinRig
+
 from ..skin.basic_chain import Rig as BasicChainRig
 
 import functools
@@ -133,7 +136,7 @@ class Rig(BaseSkinRig):
         return node.rig in self.child_chains and node.is_master_node
 
     def is_eye_corner_node(self, node):
-        sides = set(n.name_split[2] for n in node.get_merged_siblings())
+        sides = set(n.name_split.side_z for n in node.get_merged_siblings())
         return {SideZ.BOTTOM, SideZ.TOP}.issubset(sides)
 
     def extend_control_node_parent(self, parent, node):

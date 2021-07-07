@@ -30,7 +30,10 @@ from rigify.rigs.widgets import create_jaw_widget
 
 from rigify.base_rig import stage, RigComponent
 
-from ..skin.skin_rigs import BaseSkinRig, ControlBoneNode, ControlBoneParentOrg, ControlBoneParentArmature
+from ..skin.skin_nodes import ControlBoneNode
+from ..skin.skin_parents import ControlBoneParentOrg, ControlBoneParentArmature
+from ..skin.skin_rigs import BaseSkinRig
+
 from ..skin.basic_chain import Rig as BasicChainRig
 
 import mathutils
@@ -75,8 +78,8 @@ class Rig(BaseSkinRig):
     def is_corner_node(self, node):
         siblings = [ n for n in node.get_merged_siblings() if n.rig in self.child_chains ]
 
-        sides_x = set(n.name_split[1] for n in siblings)
-        sides_z = set(n.name_split[2] for n in siblings)
+        sides_x = set(n.name_split.side for n in siblings)
+        sides_z = set(n.name_split.side_z for n in siblings)
 
         if {SideZ.BOTTOM, SideZ.TOP}.issubset(sides_z):
             if Side.LEFT in sides_x:

@@ -30,7 +30,8 @@ from rigify.utils.misc import LazyRef
 
 from rigify.base_rig import stage
 
-from ..skin_rigs import BaseSkinRig, ControlBoneParentArmature
+from ..skin_parents import ControlBoneParentArmature
+from ..skin_rigs import BaseSkinRig
 
 
 class Rig(BaseSkinRig):

@@ -26,7 +26,8 @@ from rigify.utils.mechanism import move_all_constraints
 
 from rigify.base_rig import stage
 
-from .skin_rigs import BaseSkinChainRigWithRotationOption, ControlBoneNode, ControlNodeIcon, ControlNodeEnd
+from .skin_nodes import ControlBoneNode, ControlNodeIcon, ControlNodeEnd
+from .skin_rigs import BaseSkinChainRigWithRotationOption
 
 from rigify.rigs.basic.raw_copy import RelinkConstraintsMixin
 

@@ -36,7 +36,8 @@ from rigify.utils.misc import map_list
 
 from rigify.base_rig import stage
 
-from .skin_rigs import BaseSkinChainRigWithRotationOption, ControlBoneNode, ControlNodeEnd, get_bone_quaternion
+from .skin_nodes import ControlBoneNode, ControlNodeEnd
+from .skin_rigs import BaseSkinChainRigWithRotationOption, get_bone_quaternion
 
 
 class Rig(BaseSkinChainRigWithRotationOption):

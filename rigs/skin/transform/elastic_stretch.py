@@ -34,7 +34,8 @@ from rigify.utils.misc import map_list, force_lazy, LazyRef
 
 from rigify.base_rig import stage
 
-from ..skin_rigs import BaseSkinRig, ControlBoneParentOffset
+from ..skin_parents import ControlBoneParentOffset
+from ..skin_rigs import BaseSkinRig
 
 
 class Rig(BaseSkinRig):
