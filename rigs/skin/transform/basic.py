@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,7 +14,7 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
 
@@ -87,7 +87,8 @@ class Rig(BaseSkinRig):
     @stage.generate_bones
     def make_master_control(self):
         if self.make_control:
-            self.bones.ctrl.master = self.copy_bone(self.bones.org, make_derived_name(self.bones.org, 'ctrl'), parent=True)
+            self.bones.ctrl.master = self.copy_bone(
+                self.bones.org, make_derived_name(self.bones.org, 'ctrl'), parent=True)
 
     @stage.configure_bones
     def configure_master_control(self):
@@ -104,7 +105,8 @@ class Rig(BaseSkinRig):
 
     @stage.generate_bones
     def make_mch_template_bone(self):
-        self.bones.mch.template = self.copy_bone(self.bones.org, make_derived_name(self.bones.org, 'mch', '_orient'), parent=True)
+        self.bones.mch.template = self.copy_bone(
+            self.bones.org, make_derived_name(self.bones.org, 'mch', '_orient'), parent=True)
 
     @stage.parent_bones
     def parent_mch_template_bone(self):
@@ -123,12 +125,11 @@ class Rig(BaseSkinRig):
     @classmethod
     def add_parameters(self, params):
         params.make_control = bpy.props.BoolProperty(
-            name        = "Control",
-            default     = True,
-            description = "Create a control bone for the copy"
+            name="Control",
+            default=True,
+            description="Create a control bone for the copy"
         )
 
     @classmethod
     def parameters_ui(self, layout, params):
         layout.prop(params, "make_control", text="Generate Control")
-

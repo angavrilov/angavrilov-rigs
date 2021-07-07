@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,7 +14,7 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
 
@@ -36,20 +36,23 @@ from .skin_rigs import BaseSkinRig, BaseSkinChainRig
 
 
 class ControlNodeLayer(enum.IntEnum):
-    FREE         = 0
+    FREE = 0
     MIDDLE_PIVOT = 10
-    TWEAK        = 20
+    TWEAK = 20
+
 
 class ControlNodeIcon(enum.IntEnum):
-    TWEAK        = 0
+    TWEAK = 0
     MIDDLE_PIVOT = 1
-    FREE         = 2
-    CUSTOM       = 3
+    FREE = 2
+    CUSTOM = 3
+
 
 class ControlNodeEnd(enum.IntEnum):
-    START        = -1
-    MIDDLE       = 0
-    END          = 1
+    START = -1
+    MIDDLE = 0
+    END = 1
+
 
 def _get_parent_rigs(rig):
     result = []
@@ -69,7 +72,7 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
         needs_parent=False, needs_reparent=False, allow_scale=False,
         chain_end=ControlNodeEnd.MIDDLE,
         layer=ControlNodeLayer.FREE, index=None, icon=ControlNodeIcon.TWEAK,
-        ):
+    ):
         assert isinstance(rig, BaseSkinChainRig)
 
         super().__init__(rig, name, point or rig.get_bone(org).head)
@@ -135,10 +138,10 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
         side_x_other, side_z_other = map(abs, other.name_split[1:])
 
         if ((side_x_my < side_x_other and side_z_my <= side_z_other) or
-            (side_x_my <= side_x_other and side_z_my < side_z_other)):
+                (side_x_my <= side_x_other and side_z_my < side_z_other)):
             return False
         if ((side_x_my > side_x_other and side_z_my >= side_z_other) or
-            (side_x_my >= side_x_other and side_z_my > side_z_other)):
+                (side_x_my >= side_x_other and side_z_my > side_z_other)):
             return True
 
         return False
@@ -264,26 +267,27 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
 
             # Compute orientation
             self.rotation = sum(
-                    (node.get_rotation() for node in mirror_sibling_list),
-                    Quaternion((0,0,0,0))
-                ).normalized()
+                (node.get_rotation() for node in mirror_sibling_list),
+                Quaternion((0, 0, 0, 0))
+            ).normalized()
 
             self.matrix = self.rotation.to_matrix().to_4x4()
             self.matrix.translation = self.point
 
             # Create parents
-            self.node_parent_list = [ node.build_parent() for node in mirror_sibling_list ]
+            self.node_parent_list = [node.build_parent() for node in mirror_sibling_list]
 
             if all(parent == self.node_parent for parent in self.node_parent_list):
                 self.use_mix_parent = False
-                self.node_parent_list = [ self.node_parent ]
+                self.node_parent_list = [self.node_parent]
             else:
                 self.use_mix_parent = True
 
             self.has_weak_parent = isinstance(self.node_parent, ControlBoneWeakParentLayer)
             self.node_parent_base = ControlBoneWeakParentLayer.strip(self.node_parent)
 
-            self.node_parent_list = [ ControlBoneWeakParentLayer.strip(p) for p in self.node_parent_list ]
+            self.node_parent_list = [
+                ControlBoneWeakParentLayer.strip(p) for p in self.node_parent_list]
 
             for parent in self.node_parent_list:
                 self.register_use_parent(parent)
@@ -337,10 +341,10 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
                 and self.mirror_sides_z.issubset(node.mirror_sides_z)
             ]
 
-            candidates = [ node for node in siblings if node.chain_end == ControlNodeEnd.START ]
+            candidates = [node for node in siblings if node.chain_end == ControlNodeEnd.START]
 
             if not candidates:
-                candidates = [ node for node in siblings if node.chain_end == ControlNodeEnd.MIDDLE ]
+                candidates = [node for node in siblings if node.chain_end == ControlNodeEnd.MIDDLE]
 
             if candidates:
                 return min(candidates, key=lambda c: (-c.rig.chain_priority, c.name_merged))
@@ -356,7 +360,8 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
             self.reparent_bones = {}
 
             if self.use_mix_parent:
-                self.mix_parent_bone = self.make_bone(make_derived_name(self._control_bone, 'mch', '_mix_parent'), 1/2)
+                self.mix_parent_bone = self.make_bone(
+                    make_derived_name(self._control_bone, 'mch', '_mix_parent'), 1/2)
             else:
                 self.reparent_bones[id(self.node_parent)] = self._control_bone
 
@@ -366,11 +371,13 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
             for parent in self.reparent_requests:
                 if id(parent) not in self.reparent_bones:
                     parent_name = self.parent_subrig_names[id(parent)]
-                    self.reparent_bones[id(parent)] = self.make_bone(make_derived_name(parent_name, 'mch', '_reparent'), 1/3)
+                    self.reparent_bones[id(parent)] = self.make_bone(
+                        make_derived_name(parent_name, 'mch', '_reparent'), 1/3)
                     self.use_weak_parent = self.has_weak_parent
 
             if self.use_weak_parent:
-                self.weak_parent_bone = self.make_bone(make_derived_name(self._control_bone, 'mch', '_weak_parent'), 1/2)
+                self.weak_parent_bone = self.make_bone(
+                    make_derived_name(self._control_bone, 'mch', '_weak_parent'), 1/2)
 
     def make_master_bone(self):
         choice = self.find_master_name_node()
@@ -384,10 +391,12 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
     def parent_bones(self):
         if self.is_master_node:
             if self.use_mix_parent:
-                self.set_bone_parent(self._control_bone, self.mix_parent_bone, inherit_scale='AVERAGE')
+                self.set_bone_parent(self._control_bone, self.mix_parent_bone,
+                                     inherit_scale='AVERAGE')
                 self.rig.generator.disable_auto_parent(self.mix_parent_bone)
             else:
-                self.set_bone_parent(self._control_bone, self.node_parent_list[0].output_bone, inherit_scale='AVERAGE')
+                self.set_bone_parent(self._control_bone,
+                                     self.node_parent_list[0].output_bone, inherit_scale='AVERAGE')
 
             if self.use_weak_parent:
                 self.set_bone_parent(
@@ -413,8 +422,9 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
     def rig_bones(self):
         if self.is_master_node:
             if self.use_mix_parent:
-                targets = [ parent.output_bone for parent in self.node_parent_list ]
-                self.make_constraint(self.mix_parent_bone, 'ARMATURE', targets=targets, use_deform_preserve_volume=True)
+                targets = [parent.output_bone for parent in self.node_parent_list]
+                self.make_constraint(self.mix_parent_bone, 'ARMATURE',
+                                     targets=targets, use_deform_preserve_volume=True)
 
             for rig in reversed(self.rig.get_all_parent_skin_rigs()):
                 rig.extend_control_node_rig(self)
@@ -424,7 +434,8 @@ class ControlBoneNode(MainMergeNode, MechanismUtilityMixin, BoneUtilityMixin):
             if self.use_weak_parent:
                 reparent_source = self.weak_parent_bone
 
-                self.make_constraint(reparent_source, 'COPY_TRANSFORMS', self.control_bone, space='LOCAL')
+                self.make_constraint(reparent_source, 'COPY_TRANSFORMS',
+                                     self.control_bone, space='LOCAL')
 
                 set_bone_widget_transform(self.obj, self.control_bone, reparent_source)
 

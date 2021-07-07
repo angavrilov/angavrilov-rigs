@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,7 +14,7 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
 
@@ -86,7 +86,8 @@ class ControlBoneParentArmature(ControlBoneParentBase):
         )
 
     def generate_bones(self):
-        self.output_bone = self.node.make_bone(make_derived_name(self.node.name, 'mch', '_arm'), 1/4, rig=self.rig)
+        self.output_bone = self.node.make_bone(
+            make_derived_name(self.node.name, 'mch', '_arm'), 1/4, rig=self.rig)
 
         self.rig.generator.disable_auto_parent(self.output_bone)
 
@@ -243,14 +244,15 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
 
             if self.add_local:
                 for key in self.add_local:
-                    self.mch_bones.append(self.node.make_bone(mch_name, 1/4, rig=self.rig, orientation=self.add_orientations[key]))
+                    self.mch_bones.append(self.node.make_bone(
+                        mch_name, 1/4, rig=self.rig, orientation=self.add_orientations[key]))
             else:
                 # Try piggybacking on the parent bone if allowed
                 if not self.parent.is_parent_frozen:
                     bone = self.get_bone(self.parent.output_bone)
                     if (bone.head - self.node.point).length < 1e-5:
                         self.reuse_mch = True
-                        self.mch_bones = [ bone.name ]
+                        self.mch_bones = [bone.name]
                         return
 
                 self.mch_bones.append(self.node.make_bone(mch_name, 1/4, rig=self.rig))
@@ -271,7 +273,7 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
             varmap = {}
 
             try:
-                template.substitute({k:'' for k in varset})
+                template.substitute({k: '' for k in varset})
             except Exception as e:
                 self.rig.raise_error('Invalid driver expression: {}\nError: {}', expr, e)
 
@@ -279,7 +281,7 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
             for name, desc in varset.items():
                 # Check if the variable is used.
                 try:
-                    template.substitute({k:'' for k in varset if k != name})
+                    template.substitute({k: '' for k in varset if k != name})
                     continue
                 except KeyError:
                     pass
@@ -331,7 +333,8 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
                 for index, vals in enumerate(specs):
                     if vals:
                         expr, variables = self.compile_driver(vals)
-                        self.make_driver(mch, 'location', index=index, expression=expr, variables=variables)
+                        self.make_driver(mch, 'location', index=index,
+                                         expression=expr, variables=variables)
 
         for target, kwargs in self.limit_distance:
             self.make_constraint(self.mch_bones[-1], 'LIMIT_DISTANCE', target, **kwargs)

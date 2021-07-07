@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,7 +14,7 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
 
@@ -45,7 +45,6 @@ class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
 
         self.make_deform = self.params.make_extra_deform
 
-
     ####################################################
     # CONTROL NODES
 
@@ -54,12 +53,14 @@ class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
         org = self.bones.org
         name = make_derived_name(org, 'ctrl')
 
-        self.control_node = node = ControlBoneNode(self, org, name, icon=ControlNodeIcon.CUSTOM, chain_end=ControlNodeEnd.START)
+        self.control_node = node = ControlBoneNode(
+            self, org, name, icon=ControlNodeIcon.CUSTOM, chain_end=ControlNodeEnd.START)
 
         node.hide_control = self.params.skin_anchor_hide
 
     def make_control_node_widget(self, node):
-        create_registered_widget(self.obj, node.control_bone, self.params.pivot_master_widget_type or 'cube')
+        create_registered_widget(self.obj, node.control_bone,
+                                 self.params.pivot_master_widget_type or 'cube')
 
     def extend_control_node_rig(self, node):
         if node.rig == self:
@@ -71,7 +72,6 @@ class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
 
             move_all_constraints(self.obj, org, node.control_bone)
 
-
     ##############################
     # ORG chain
 
@@ -79,20 +79,19 @@ class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
     def parent_org_chain(self):
         self.set_bone_parent(self.bones.org, self.control_node.control_bone)
 
-
     ##############################
     # Deform bone
 
     @stage.generate_bones
     def make_deform_bone(self):
         if self.make_deform:
-            self.bones.deform = self.copy_bone(self.bones.org, make_derived_name(self.bones.org, 'def'))
+            self.bones.deform = self.copy_bone(
+                self.bones.org, make_derived_name(self.bones.org, 'def'))
 
     @stage.parent_bones
     def parent_deform_chain(self):
         if self.make_deform:
             self.set_bone_parent(self.bones.deform, self.bones.org)
-
 
     ####################################################
     # SETTINGS
@@ -100,21 +99,21 @@ class Rig(BaseSkinChainRigWithRotationOption, RelinkConstraintsMixin):
     @classmethod
     def add_parameters(self, params):
         params.make_extra_deform = bpy.props.BoolProperty(
-            name        = "Extra Deform",
-            default     = False,
-            description = "Create an optional deform bone"
+            name="Extra Deform",
+            default=False,
+            description="Create an optional deform bone"
         )
 
         params.skin_anchor_hide = bpy.props.BoolProperty(
-            name        = 'Suppress Control',
-            default     = False,
-            description = 'Make the control bone a mechanism bone invisible to the user and only affected by constraints'
+            name='Suppress Control',
+            default=False,
+            description='Make the control bone a mechanism bone invisible to the user and only affected by constraints'
         )
 
         params.pivot_master_widget_type = bpy.props.StringProperty(
-            name        = "Widget Type",
-            default     = 'cube',
-            description = "Choose the type of the widget to create"
+            name="Widget Type",
+            default='cube',
+            description="Choose the type of the widget to create"
         )
 
         self.add_relink_constraints_params(params)

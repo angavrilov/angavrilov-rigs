@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,7 +14,7 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
 
@@ -61,7 +61,8 @@ class Rig(BasicChainRig):
 
     def initialize(self):
         if len(self.bones.org) < self.min_chain_length:
-            self.raise_error("Input to rig type must be a chain of {} or more bones.", self.min_chain_length)
+            self.raise_error(
+                "Input to rig type must be a chain of {} or more bones.", self.min_chain_length)
 
         super().initialize()
 
@@ -72,9 +73,9 @@ class Rig(BasicChainRig):
         if not (0 <= self.pivot_pos < len(orgs)):
             self.raise_error('Invalid middle control position: {}', self.pivot_pos)
 
-        bone_lengths = [ self.get_bone(org).length for org in orgs ]
+        bone_lengths = [self.get_bone(org).length for org in orgs]
 
-        self.chain_lengths = [ sum(bone_lengths[0:i]) for i in range(len(orgs)+1) ]
+        self.chain_lengths = [sum(bone_lengths[0:i]) for i in range(len(orgs)+1)]
 
         if not self.params.skin_chain_falloff_length:
             self.pivot_base = self.get_bone(orgs[0]).head
@@ -152,13 +153,13 @@ class Rig(BasicChainRig):
         if self.use_falloff_curve(0):
             parent.add_copy_local_location(
                 LazyRef(self.control_nodes[0], 'reparent_bone'),
-                influence = self.apply_falloff_start(1 - factor),
+                influence=self.apply_falloff_start(1 - factor),
             )
 
         if self.use_falloff_curve(2):
             parent.add_copy_local_location(
                 LazyRef(self.control_nodes[-1], 'reparent_bone'),
-                influence = self.apply_falloff_end(factor),
+                influence=self.apply_falloff_end(factor),
             )
 
         if self.pivot_pos and node.index != self.pivot_pos and self.use_falloff_curve(1):
@@ -169,7 +170,7 @@ class Rig(BasicChainRig):
 
             parent.add_copy_local_location(
                 LazyRef(self.control_nodes[self.pivot_pos], 'reparent_bone'),
-                influence = self.apply_falloff_middle(clamp(factor)),
+                influence=self.apply_falloff_middle(clamp(factor)),
             )
 
         if node.index != self.pivot_pos and self.params.skin_chain_falloff_to_controls:
@@ -307,7 +308,7 @@ class Rig(BasicChainRig):
         params.skin_chain_falloff = bpy.props.FloatVectorProperty(
             size=3,
             name='Control Falloff',
-            default=(0.0,1.0,0.0),
+            default=(0.0, 1.0, 0.0),
             soft_min=-2, min=-10, soft_max=2,
             description='Falloff curve coefficient: 0 is linear, and higher value is wider influence. Set to -10 to disable influence completely',
         )

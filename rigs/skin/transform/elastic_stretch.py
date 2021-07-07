@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,7 +14,7 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
 
@@ -84,7 +84,8 @@ class Rig(BaseSkinRig):
     @stage.generate_bones
     def make_master_control(self):
         if self.make_control:
-            self.bones.ctrl.master = self.copy_bone(self.bones.org, make_derived_name(self.bones.org, 'ctrl'), parent=True)
+            self.bones.ctrl.master = self.copy_bone(
+                self.bones.org, make_derived_name(self.bones.org, 'ctrl'), parent=True)
 
     @stage.configure_bones
     def configure_master_control(self):
@@ -122,17 +123,17 @@ class Rig(BaseSkinRig):
     @stage.initialize
     def init_scale_params1(self):
         self.eps = EPS_MIN
-        self.k_list = [1, 3.55, 11] # x 1.9, 3.5
+        self.k_list = [1, 3.55, 11]  # x 1.9, 3.5
         self.blends = [
             '(-2.381*$f-20.883*atan($f*0.29)+17.191*atan($f*0.491))/(4.976*atan($f*0.491)-13.578*atan($f*0.29)-11.655*$f)',
             '(-1.033*atan($f*0.29)+0.378*atan($f*0.49)+0.114*$f)/$f',
         ]
         self.max_scale = 35
 
-    #@stage.initialize
+    # @stage.initialize
     def init_scale_params2(self):
         self.eps = 1
-        self.k_list = [1, 3.6, 12] # x 1.5, 2.5
+        self.k_list = [1, 3.6, 12]  # x 1.5, 2.5
         self.blends = [
             '(-2.654*$f+11.758*atan($f*0.485)-15.159*atan($f*0.378))/(-9.938*$f+2.868*atan($f*0.485)-10.105*atan($f*0.378))',
             '(0.134*$f+0.250*atan($f*0.485)-0.881*atan($f*0.378))/$f',
@@ -163,7 +164,9 @@ class Rig(BaseSkinRig):
             'ty': driver_var_transform(self.obj, input_bone, type='LOC_Z', space='LOCAL'),
         }
 
-        self.make_driver(bone, quote_property('f'), expression='max(1e-5,(sx+sy-2)/2+sqrt(tx*tx+ty*ty))', variables=variables)
+        self.make_driver(bone, quote_property('f'),
+                         expression='max(1e-5,(sx+sy-2)/2+sqrt(tx*tx+ty*ty))',
+                         variables=variables)
 
     def extend_control_node_parent(self, parent, node):
         parent = ControlBoneParentOffset(self, node, parent)
@@ -174,8 +177,10 @@ class Rig(BaseSkinRig):
         radius = self.params.skin_elastic_scale_radius
         poissons_ratio = 0.3
 
-        mats = [ compute_scale_pinch_matrix(pos.x, pos.z, radius, poissons_ratio, self.eps * k) for k in self.k_list ]
-        trf_weights = [ compute_translate_weight(pos.x, pos.z, radius, self.eps * k) for k in self.k_list ]
+        mats = [compute_scale_pinch_matrix(pos.x, pos.z, radius, poissons_ratio, self.eps * k)
+                for k in self.k_list]
+        trf_weights = [compute_translate_weight(pos.x, pos.z, radius, self.eps * k)
+                       for k in self.k_list]
 
         # Apply scale & pinch drivers
         variables = {
@@ -184,11 +189,13 @@ class Rig(BaseSkinRig):
             'f': (LazyRef(self.bones, 'org'), 'f'),
         }
 
-        exprs_x = [ '%f*$s+%f*$p' % (mat[0][0], mat[0][1]) for mat in mats ]
-        exprs_y = [ '%f*$s+%f*$p' % (mat[1][0], mat[1][1]) for mat in mats ]
+        exprs_x = ['%f*$s+%f*$p' % (mat[0][0], mat[0][1]) for mat in mats]
+        exprs_y = ['%f*$s+%f*$p' % (mat[1][0], mat[1][1]) for mat in mats]
 
-        parent.add_location_driver(self.transform_orientation, 0, lerp_mix(exprs_x, self.blends), variables)
-        parent.add_location_driver(self.transform_orientation, 2, lerp_mix(exprs_y, self.blends), variables)
+        parent.add_location_driver(self.transform_orientation, 0,
+                                   lerp_mix(exprs_x, self.blends), variables)
+        parent.add_location_driver(self.transform_orientation, 2,
+                                   lerp_mix(exprs_y, self.blends), variables)
 
         # Add translate control for center (not a true grab brush, just falloff matching scale)
         if all(w >= 1 for w in trf_weights):
@@ -196,7 +203,8 @@ class Rig(BaseSkinRig):
         else:
             expr_i = lerp_mix(map(str, trf_weights), self.blends)
 
-            parent.add_copy_local_location(self.input_ref, influence_expr=expr_i, influence_vars=variables)
+            parent.add_copy_local_location(
+                self.input_ref, influence_expr=expr_i, influence_vars=variables)
 
         return parent
 
@@ -213,9 +221,9 @@ class Rig(BaseSkinRig):
     @classmethod
     def add_parameters(self, params):
         params.make_control = bpy.props.BoolProperty(
-            name        = "Control",
-            default     = True,
-            description = "Create a control bone for the copy"
+            name="Control",
+            default=True,
+            description="Create a control bone for the copy"
         )
 
         params.skin_elastic_scale_radius = bpy.props.FloatProperty(
@@ -233,6 +241,7 @@ class Rig(BaseSkinRig):
 
 # This value gives maximum scale offset at exactly radius (radius ring radially unscaled)
 EPS_MIN = 0.5*math.sqrt(3 + math.sqrt(17))
+
 
 def compute_scale_pinch_matrix(x, y, exact_radius, poissons_ratio, brush_radius):
     x /= exact_radius
@@ -253,9 +262,10 @@ def compute_scale_pinch_matrix(x, y, exact_radius, poissons_ratio, brush_radius)
     v2_32e2_x2y2v = (2*v - 1.5) * e2 + (x2 + y2) * v
 
     return exact_radius * Matrix((
-        ( common_scale * x, common_pinch * x * (v2_32e2_x2y2v - x2) ),
-        ( common_scale * y, common_pinch * -y * (v2_32e2_x2y2v - y2) ),
+        (common_scale * x, common_pinch * x * (v2_32e2_x2y2v - x2)),
+        (common_scale * y, common_pinch * -y * (v2_32e2_x2y2v - y2)),
     ))
+
 
 def compute_translate_weight(x, y, exact_radius, brush_radius):
     x /= exact_radius
@@ -270,6 +280,7 @@ def compute_translate_weight(x, y, exact_radius, brush_radius):
     e2 = brush_radius * brush_radius
 
     return r * (e2 + 1) * (e2 + 1) * (2*e2 + r2) / (2*e2 + 1) / (e2 + r2) / (e2 + r2)
+
 
 def lerp_mix(items, weights):
     cur, *rest = items

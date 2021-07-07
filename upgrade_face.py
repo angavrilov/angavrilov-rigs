@@ -19,6 +19,7 @@ def find_face_bone(obj):
         if get_rigify_type(pbone) == 'faces.super_face':
             return pbone.name
 
+
 def list_face_bones(obj):
     face_bone = find_face_bone(obj)
 
@@ -31,149 +32,160 @@ def list_face_bones(obj):
 
 
 def process_all(process):
-    process('face',layer='*',rig='')
+    process('face', layer='*', rig='')
 
-    process('nose',rig='skin.stretchy_chain',connect_ends='next',priority=1)
+    process('nose', rig='skin.stretchy_chain', connect_ends='next', priority=1)
     process('nose.001')
-    process('nose.002',parent='nose_master',rig='skin.stretchy_chain',connect_ends=True,priority=1)
+    process('nose.002', parent='nose_master',
+            rig='skin.stretchy_chain', connect_ends=True, priority=1)
     process('nose.003')
-    process('nose.004',parent='face',rig='skin.basic_chain',connect_ends='prev')
+    process('nose.004', parent='face', rig='skin.basic_chain', connect_ends='prev')
 
-    process('lip.T.L',parent='jaw_master',layer=1,rig='skin.stretchy_chain',sharpen=(0,90),
-            falloff=(0.7,1,0.1),spherical=(True,False,True),scale=True)
+    process('lip.T.L', parent='jaw_master', layer=1, rig='skin.stretchy_chain', sharpen=(0, 90),
+            falloff=(0.7, 1, 0.1), spherical=(True, False, True), scale=True)
     process('lip.T.L.001')
 
-    process('lip.B.L',parent='jaw_master',layer=1,rig='skin.stretchy_chain',sharpen=(0,90),
-            falloff=(0.7,1,0.1),spherical=(True,False,True),scale=True)
+    process('lip.B.L', parent='jaw_master', layer=1, rig='skin.stretchy_chain', sharpen=(0, 90),
+            falloff=(0.7, 1, 0.1), spherical=(True, False, True), scale=True)
     process('lip.B.L.001')
 
-    process('jaw',parent='jaw_master',layer=1,rig='skin.basic_chain',connect_ends='next')
-    process('chin',parent='jaw_master',rig='skin.stretchy_chain',connect_ends='prev')
+    process('jaw', parent='jaw_master', layer=1, rig='skin.basic_chain', connect_ends='next')
+    process('chin', parent='jaw_master', rig='skin.stretchy_chain', connect_ends='prev')
     process('chin.001')
 
-    process('ear.L',layer=0,rig='basic.super_copy',params={'super_copy_widget_type':'sphere'})
+    process('ear.L', layer=0, rig='basic.super_copy', params={'super_copy_widget_type': 'sphere'})
 
-    process('ear.L.001',parent='ear.L',rig='skin.basic_chain',connect_ends=True)
-    process('ear.L.002',parent='ear.L',rig='skin.stretchy_chain',connect_ends=True)
+    process('ear.L.001', parent='ear.L', rig='skin.basic_chain', connect_ends=True)
+    process('ear.L.002', parent='ear.L', rig='skin.stretchy_chain', connect_ends=True)
     process('ear.L.003')
-    process('ear.L.004',parent='ear.L',rig='skin.basic_chain',connect_ends=True)
+    process('ear.L.004', parent='ear.L', rig='skin.basic_chain', connect_ends=True)
 
-    process('ear.R',layer=0,rig='basic.super_copy',params={'super_copy_widget_type':'sphere'})
+    process('ear.R', layer=0, rig='basic.super_copy', params={'super_copy_widget_type': 'sphere'})
 
-    process('ear.R.001',parent='ear.R',rig='skin.basic_chain',connect_ends=True)
-    process('ear.R.002',parent='ear.R',rig='skin.stretchy_chain',connect_ends=True)
+    process('ear.R.001', parent='ear.R', rig='skin.basic_chain', connect_ends=True)
+    process('ear.R.002', parent='ear.R', rig='skin.stretchy_chain', connect_ends=True)
     process('ear.R.003')
-    process('ear.R.004',parent='ear.R',rig='skin.basic_chain',connect_ends=True)
+    process('ear.R.004', parent='ear.R', rig='skin.basic_chain', connect_ends=True)
 
-    process('lip.T.R',parent='jaw_master',layer=1,rig='skin.stretchy_chain',sharpen=(0,90),
-            falloff=(0.7,1,0.1),spherical=(True,False,True),scale=True)
+    process('lip.T.R', parent='jaw_master', layer=1, rig='skin.stretchy_chain', sharpen=(0, 90),
+            falloff=(0.7, 1, 0.1), spherical=(True, False, True), scale=True)
     process('lip.T.R.001')
 
-    process('lip.B.R',parent='jaw_master',layer=1,rig='skin.stretchy_chain',sharpen=(0,90),
-            falloff=(0.7,1,0.1),spherical=(True,False,True),scale=True)
+    process('lip.B.R', parent='jaw_master', layer=1, rig='skin.stretchy_chain', sharpen=(0, 90),
+            falloff=(0.7, 1, 0.1), spherical=(True, False, True), scale=True)
     process('lip.B.R.001')
 
-    process('brow.B.L',rig='skin.stretchy_chain',middle=2,connect_ends='next')
+    process('brow.B.L', rig='skin.stretchy_chain', middle=2, connect_ends='next')
     process('brow.B.L.001')
     process('brow.B.L.002')
     process('brow.B.L.003')
 
-    process('lid.T.L',parent='eye.L',sec_layer=1,rig='skin.stretchy_chain',middle=2)#,connect_ends=True,sharpen=(120,120))
+    # ,connect_ends=True,sharpen=(120,120))
+    process('lid.T.L', parent='eye.L', sec_layer=1, rig='skin.stretchy_chain', middle=2)
     process('lid.T.L.001')
     process('lid.T.L.002')
     process('lid.T.L.003')
-    process('lid.B.L',parent='eye.L',sec_layer=1,rig='skin.stretchy_chain',middle=2)#,connect_ends=True,sharpen=(120,120))
+    # ,connect_ends=True,sharpen=(120,120))
+    process('lid.B.L', parent='eye.L', sec_layer=1, rig='skin.stretchy_chain', middle=2)
     process('lid.B.L.001')
     process('lid.B.L.002')
     process('lid.B.L.003')
 
-    process('brow.B.R',rig='skin.stretchy_chain',middle=2,connect_ends='next')
+    process('brow.B.R', rig='skin.stretchy_chain', middle=2, connect_ends='next')
     process('brow.B.R.001')
     process('brow.B.R.002')
     process('brow.B.R.003')
 
-    process('lid.T.R',parent='eye.R',sec_layer=1,rig='skin.stretchy_chain',middle=2)#,connect_ends=True,sharpen=(120,120))
+    # ,connect_ends=True,sharpen=(120,120))
+    process('lid.T.R', parent='eye.R', sec_layer=1, rig='skin.stretchy_chain', middle=2)
     process('lid.T.R.001')
     process('lid.T.R.002')
     process('lid.T.R.003')
-    process('lid.B.R',parent='eye.R',sec_layer=1,rig='skin.stretchy_chain',middle=2)#,connect_ends=True,sharpen=(120,120))
+    # ,connect_ends=True,sharpen=(120,120))
+    process('lid.B.R', parent='eye.R', sec_layer=1, rig='skin.stretchy_chain', middle=2)
     process('lid.B.R.001')
     process('lid.B.R.002')
     process('lid.B.R.003')
 
-    process('forehead.L',parent='face',rig='skin.basic_chain')
-    process('forehead.L.001',parent='face',rig='skin.basic_chain')
-    process('forehead.L.002',parent='face',rig='skin.basic_chain')
+    process('forehead.L', parent='face', rig='skin.basic_chain')
+    process('forehead.L.001', parent='face', rig='skin.basic_chain')
+    process('forehead.L.002', parent='face', rig='skin.basic_chain')
 
-    process('temple.L',parent='face',rig='skin.basic_chain',connect_ends=True,priority=1)
-    process('jaw.L',parent='jaw_master',rig='skin.basic_chain',connect_ends='prev')
+    process('temple.L', parent='face', rig='skin.basic_chain', connect_ends=True, priority=1)
+    process('jaw.L', parent='jaw_master', rig='skin.basic_chain', connect_ends='prev')
     process('jaw.L.001')
     process('chin.L')
-    process('cheek.B.L',parent='face',layer=1,rig='skin.stretchy_chain',connect_ends='next')
+    process('cheek.B.L', parent='face', layer=1, rig='skin.stretchy_chain', connect_ends='next')
     process('cheek.B.L.001')
-    process('brow.T.L',parent='face',rig='skin.basic_chain',connect_ends=True)
-    process('brow.T.L.001',parent='face',layer=1,rig='skin.stretchy_chain',connect_ends=True)
+    process('brow.T.L', parent='face', rig='skin.basic_chain', connect_ends=True)
+    process('brow.T.L.001', parent='face', layer=1, rig='skin.stretchy_chain', connect_ends=True)
     process('brow.T.L.002')
-    process('brow.T.L.003',parent='face',rig='skin.basic_chain',connect_ends='prev')
+    process('brow.T.L.003', parent='face', rig='skin.basic_chain', connect_ends='prev')
 
-    process('forehead.R',parent='face',rig='skin.basic_chain')
-    process('forehead.R.001',parent='face',rig='skin.basic_chain')
-    process('forehead.R.002',parent='face',rig='skin.basic_chain')
+    process('forehead.R', parent='face', rig='skin.basic_chain')
+    process('forehead.R.001', parent='face', rig='skin.basic_chain')
+    process('forehead.R.002', parent='face', rig='skin.basic_chain')
 
-    process('temple.R',parent='face',rig='skin.basic_chain',connect_ends=True,priority=1)
-    process('jaw.R',parent='jaw_master',rig='skin.basic_chain',connect_ends='prev')
+    process('temple.R', parent='face', rig='skin.basic_chain', connect_ends=True, priority=1)
+    process('jaw.R', parent='jaw_master', rig='skin.basic_chain', connect_ends='prev')
     process('jaw.R.001')
     process('chin.R')
-    process('cheek.B.R',parent='face',layer=1,rig='skin.stretchy_chain',connect_ends='next')
+    process('cheek.B.R', parent='face', layer=1, rig='skin.stretchy_chain', connect_ends='next')
     process('cheek.B.R.001')
-    process('brow.T.R',parent='face',rig='skin.basic_chain',connect_ends=True)
-    process('brow.T.R.001',parent='face',layer=1,rig='skin.stretchy_chain',connect_ends=True)
+    process('brow.T.R', parent='face', rig='skin.basic_chain', connect_ends=True)
+    process('brow.T.R.001', parent='face', layer=1, rig='skin.stretchy_chain', connect_ends=True)
     process('brow.T.R.002')
-    process('brow.T.R.003',parent='face',rig='skin.basic_chain',connect_ends='prev')
+    process('brow.T.R.003', parent='face', rig='skin.basic_chain', connect_ends='prev')
 
-    process('eye.L',layer=0,rig='face.skin_eye')
-    process('eye.R',layer=0,rig='face.skin_eye')
+    process('eye.L', layer=0, rig='face.skin_eye')
+    process('eye.R', layer=0, rig='face.skin_eye')
 
-    process('cheek.T.L',rig='skin.basic_chain')
+    process('cheek.T.L', rig='skin.basic_chain')
     process('cheek.T.L.001')
 
-    process('nose.L',parent='brow.B.L.004',connect=True)
-    process('nose.L.001',parent='nose_master',rig='skin.basic_chain',layer=1)
+    process('nose.L', parent='brow.B.L.004', connect=True)
+    process('nose.L.001', parent='nose_master', rig='skin.basic_chain', layer=1)
 
-    process('cheek.T.R',rig='skin.basic_chain')
+    process('cheek.T.R', rig='skin.basic_chain')
     process('cheek.T.R.001')
 
-    process('nose.R',parent='brow.B.R.004',connect=True)
-    process('nose.R.001',parent='nose_master',rig='skin.basic_chain',layer=1)
+    process('nose.R', parent='brow.B.R.004', connect=True)
+    process('nose.R.001', parent='nose_master', rig='skin.basic_chain', layer=1)
 
-    process('teeth.T',layer=0,rig='basic.super_copy',params={'super_copy_widget_type':'teeth'})
-    process('teeth.B',layer=0,parent='jaw_master',rig='basic.super_copy',params={'super_copy_widget_type':'teeth'})
+    process('teeth.T', layer=0, rig='basic.super_copy', params={'super_copy_widget_type': 'teeth'})
+    process('teeth.B', layer=0, parent='jaw_master', rig='basic.super_copy',
+            params={'super_copy_widget_type': 'teeth'})
 
-    process('tongue',pri_layer=0,parent='jaw_master',rig='face.basic_tongue')
+    process('tongue', pri_layer=0, parent='jaw_master', rig='face.basic_tongue')
     process('tongue.001')
     process('tongue.002')
 
     # New bones
-    process('jaw_master',layer=0,parent='face',rig='face.skin_jaw')
-    process('nose_master',layer=0,parent='face',rig='basic.super_copy',params={'super_copy_widget_type':'diamond','make_deform':False})
+    process('jaw_master', layer=0, parent='face', rig='face.skin_jaw')
+    process('nose_master', layer=0, parent='face', rig='basic.super_copy',
+            params={'super_copy_widget_type': 'diamond', 'make_deform': False})
 
-    process('brow.B.L.004',parent='face',rig='skin.stretchy_chain',connect_ends='prev',falloff=(-10,1,0))
-    process('brow.B.R.004',parent='face',rig='skin.stretchy_chain',connect_ends='prev',falloff=(-10,1,0))
+    process('brow.B.L.004', parent='face', rig='skin.stretchy_chain',
+            connect_ends='prev', falloff=(-10, 1, 0))
+    process('brow.B.R.004', parent='face', rig='skin.stretchy_chain',
+            connect_ends='prev', falloff=(-10, 1, 0))
 
-    process('brow_glue.B.L.002',parent='face',rig='skin.glue',glue_copy=0.25,glue_reparent=True)
-    process('brow_glue.B.R.002',parent='face',rig='skin.glue',glue_copy=0.25,glue_reparent=True)
+    process('brow_glue.B.L.002', parent='face', rig='skin.glue', glue_copy=0.25, glue_reparent=True)
+    process('brow_glue.B.R.002', parent='face', rig='skin.glue', glue_copy=0.25, glue_reparent=True)
 
-    process('lid_glue.B.L.002',parent='face',rig='skin.glue',glue_copy=0.1)
-    process('lid_glue.B.R.002',parent='face',rig='skin.glue',glue_copy=0.1)
+    process('lid_glue.B.L.002', parent='face', rig='skin.glue', glue_copy=0.1)
+    process('lid_glue.B.R.002', parent='face', rig='skin.glue', glue_copy=0.1)
 
-    process('cheek_glue.T.L.001',parent='face',rig='skin.glue',glue_copy=0.5,glue_reparent=True)
-    process('cheek_glue.T.R.001',parent='face',rig='skin.glue',glue_copy=0.5,glue_reparent=True)
+    process('cheek_glue.T.L.001', parent='face',
+            rig='skin.glue', glue_copy=0.5, glue_reparent=True)
+    process('cheek_glue.T.R.001', parent='face',
+            rig='skin.glue', glue_copy=0.5, glue_reparent=True)
 
-    process('nose_glue.L.001',parent='face',rig='skin.glue',glue_copy=0.2,glue_reparent=True)
-    process('nose_glue.R.001',parent='face',rig='skin.glue',glue_copy=0.2,glue_reparent=True)
+    process('nose_glue.L.001', parent='face', rig='skin.glue', glue_copy=0.2, glue_reparent=True)
+    process('nose_glue.R.001', parent='face', rig='skin.glue', glue_copy=0.2, glue_reparent=True)
 
-    process('nose_end_glue.004',parent='face',rig='skin.glue',glue_copy=0.5,glue_reparent=True)
-    process('chin_end_glue.001',parent='face',rig='skin.glue',glue_copy=0.5,glue_reparent=True)
+    process('nose_end_glue.004', parent='face', rig='skin.glue', glue_copy=0.5, glue_reparent=True)
+    process('chin_end_glue.001', parent='face', rig='skin.glue', glue_copy=0.5, glue_reparent=True)
 
 
 def make_new_bones(obj, name_map):
@@ -201,26 +213,28 @@ def make_new_bones(obj, name_map):
             ebone.roll -= angle
             prev_mat = ebone.matrix
 
-    align_bones(['ear.L', 'ear.L.001','ear.L.002','ear.L.003','ear.L.004'])
-    align_bones(['ear.R', 'ear.R.001','ear.R.002','ear.R.003','ear.R.004'])
+    align_bones(['ear.L', 'ear.L.001', 'ear.L.002', 'ear.L.003', 'ear.L.004'])
+    align_bones(['ear.R', 'ear.R.001', 'ear.R.002', 'ear.R.003', 'ear.R.004'])
 
-    align_bones(['cheek.B.L','cheek.B.L.001','brow.T.L','brow.T.L.001','brow.T.L.002','brow.T.L.003'])
-    align_bones(['cheek.B.R','cheek.B.R.001','brow.T.R','brow.T.R.001','brow.T.R.002','brow.T.R.003'])
+    align_bones(['cheek.B.L', 'cheek.B.L.001', 'brow.T.L',
+                 'brow.T.L.001', 'brow.T.L.002', 'brow.T.L.003'])
+    align_bones(['cheek.B.R', 'cheek.B.R.001', 'brow.T.R',
+                 'brow.T.R.001', 'brow.T.R.002', 'brow.T.R.003'])
 
-    align_bones(['cheek.T.L','cheek.T.L.001'])
-    align_bones(['cheek.T.R','cheek.T.R.001'])
+    align_bones(['cheek.T.L', 'cheek.T.L.001'])
+    align_bones(['cheek.T.R', 'cheek.T.R.001'])
 
     align_bones(['temple.L', 'jaw.L', 'jaw.L.001', 'chin.L'])
     align_bones(['temple.R', 'jaw.R', 'jaw.R.001', 'chin.R'])
 
-    align_bones(['brow.B.L','brow.B.L.001','brow.B.L.002','brow.B.L.003','nose.L'])
-    align_bones(['brow.B.R','brow.B.R.001','brow.B.R.002','brow.B.R.003','nose.R'])
+    align_bones(['brow.B.L', 'brow.B.L.001', 'brow.B.L.002', 'brow.B.L.003', 'nose.L'])
+    align_bones(['brow.B.R', 'brow.B.R.001', 'brow.B.R.002', 'brow.B.R.003', 'nose.R'])
 
     def bridge(name, from_name, from_end, to_name, to_end, roll=0):
         bone = eb.new(name=name)
         bone.head = getattr(eb[from_name], from_end)
         bone.tail = getattr(eb[to_name], to_end)
-        bone.roll = (eb[from_name].roll + eb[to_name].roll) / 2 if roll=='mix' else roll
+        bone.roll = (eb[from_name].roll + eb[to_name].roll) / 2 if roll == 'mix' else roll
         name_map[name] = bone.name
 
     def bridge_glue(name, from_name, to_name):
@@ -250,6 +264,7 @@ def check_bone(obj, name_map, bone, **kwargs):
     if bone not in obj.pose.bones:
         raise MetarigError("Bone '%s' not found" % (bone))
 
+
 def parent_bone(obj, name_map, bone, parent=None, connect=False, **kwargs):
     if parent is not None:
         bone = name_map.get(bone, bone)
@@ -258,6 +273,7 @@ def parent_bone(obj, name_map, bone, parent=None, connect=False, **kwargs):
         ebone = obj.data.edit_bones[bone]
         ebone.use_connect = connect
         ebone.parent = obj.data.edit_bones[parent]
+
 
 def set_layers(obj, name_map, layer_table, bone, layer=2, pri_layer=None, sec_layer=None, **kwargs):
     bone = name_map.get(bone, bone)
@@ -272,19 +288,21 @@ def set_layers(obj, name_map, layer_table, bone, layer=2, pri_layer=None, sec_la
         pbone.rigify_parameters.skin_secondary_layers_extra = True
         pbone.rigify_parameters.skin_secondary_layers = layer_table[sec_layer]
 
+
 connect_ends_map = {
     'prev': (True, False),
     'next': (False, True),
     True: (True, True),
 }
 
+
 def set_rig(
-        obj, name_map, bone, rig=None,
-        connect_ends=None, priority=0, middle=0, sharpen=None,
-        falloff=None, spherical=None, falloff_length=False, scale=False,
-        glue_copy=None, glue_reparent=False,
-        params={}, **kwargs
-    ):
+    obj, name_map, bone, rig=None,
+    connect_ends=None, priority=0, middle=0, sharpen=None,
+    falloff=None, spherical=None, falloff_length=False, scale=False,
+    glue_copy=None, glue_reparent=False,
+    params={}, **kwargs
+):
     bone = name_map.get(bone, bone)
     if rig is not None:
         pbone = obj.pose.bones[bone]
@@ -317,7 +335,7 @@ def set_rig(
         if scale:
             if rig == 'skin.stretchy_chain':
                 pbone.rigify_parameters.skin_chain_falloff_scale = True
-            pbone.rigify_parameters.skin_chain_use_scale = (True,True,True,True)
+            pbone.rigify_parameters.skin_chain_use_scale = (True, True, True, True)
 
         if glue_copy:
             pbone.rigify_parameters.relink_constraints = True
@@ -326,7 +344,7 @@ def set_rig(
             pbone.rigify_parameters.skin_glue_add_constraint = 'COPY_LOCATION'
             pbone.rigify_parameters.skin_glue_add_constraint_influence = glue_copy
 
-        for k,v in params.items():
+        for k, v in params.items():
             setattr(pbone.rigify_parameters, k, v)
 
 
@@ -339,7 +357,7 @@ def update_face_rig(obj):
     if not face_bone:
         return False
 
-    name_map = { 'face': face_bone }
+    name_map = {'face': face_bone}
 
     # Find the layer settings
     face_pbone = obj.pose.bones[face_bone]
@@ -369,8 +387,8 @@ def update_face_rig(obj):
 
     # Set bone layers
     layer_table = {
-      0: main_layers, 1: primary_layers, 2: secondary_layers,
-      '*': [ a or b or c for a,b,c in zip(main_layers, primary_layers, secondary_layers) ],
+        0: main_layers, 1: primary_layers, 2: secondary_layers,
+        '*': [a or b or c for a, b, c in zip(main_layers, primary_layers, secondary_layers)],
     }
 
     process_all(partial(set_rig, obj, name_map))
@@ -382,5 +400,5 @@ def update_face_rig(obj):
 
 
 if __name__ == '__main__':
-    #list_face_bones(bpy.context.active_object)
+    # list_face_bones(bpy.context.active_object)
     update_face_rig(bpy.context.active_object)

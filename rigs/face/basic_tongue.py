@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,7 +14,7 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
 
@@ -118,17 +118,16 @@ class Rig(TweakChainRig):
         for tweak, main in zip(ctrl.tweak, parents):
             self.set_bone_parent(tweak, main)
 
-
     ####################################################
     # SETTINGS
 
     @classmethod
     def add_parameters(self, params):
         params.bbones = bpy.props.IntProperty(
-            name        = 'B-Bone Segments',
-            default     = 10,
-            min         = 1,
-            description = 'Number of B-Bone segments'
+            name='B-Bone Segments',
+            default=10,
+            min=1,
+            description='Number of B-Bone segments'
         )
 
         ControlLayersOption.SKIN_PRIMARY.add_parameters(params)

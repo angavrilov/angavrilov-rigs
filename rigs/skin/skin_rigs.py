@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,7 +14,7 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
 
@@ -30,6 +30,7 @@ from .skin_parents import ControlBoneParentOrg
 
 class BaseSkinRig(BaseRig):
     """Base type for all rigs involved in the skin system"""
+
     def initialize(self):
         self.rig_parent_bone = self.get_bone_parent(self.base_bone)
 
@@ -144,8 +145,8 @@ class BaseSkinChainRigWithRotationOption(BaseSkinChainRig):
     @classmethod
     def add_parameters(self, params):
         params.skin_control_orientation_bone = bpy.props.StringProperty(
-            name        = "Orientation Bone",
-            description = "If set, control orientation is taken from the specified bone",
+            name="Orientation Bone",
+            description="If set, control orientation is taken from the specified bone",
         )
 
         super().add_parameters(params)
@@ -155,7 +156,8 @@ class BaseSkinChainRigWithRotationOption(BaseSkinChainRig):
         from rigify.operators.copy_mirror_parameters import make_copy_parameter_button
 
         row = layout.row()
-        row.prop_search(params, "skin_control_orientation_bone", bpy.context.active_object.pose, "bones", text="Orientation")
+        row.prop_search(params, "skin_control_orientation_bone",
+                        bpy.context.active_object.pose, "bones", text="Orientation")
 
         make_copy_parameter_button(
             row, "skin_control_orientation_bone", mirror_bone=True,
