@@ -69,9 +69,6 @@ class Rig(BaseSkinRig, RelinkConstraintsMixin):
                 needs_reparent=self.params.skin_glue_tail_reparent,
             )
 
-    def build_own_control_node_parent(self, node):
-        return self.build_control_node_parent_next(node)
-
     ##############################
     # ORG chain
 
@@ -206,16 +203,16 @@ class PositionQueryNode(ControlQueryNode):
         if self.rig_org:
             return self.org
         elif self.needs_reparent:
-            return self.merged_master.get_reparent_bone(self.node_parent)
+            return self.reparent_bone
         else:
             return self.control_bone
 
     def initialize(self):
         if self.needs_reparent:
-            self.node_parent = self.merged_master.build_parent_for_node(self, use_parent=True)
+            parent = self.build_parent()
 
             if not self.rig_org:
-                self.merged_master.request_reparent(self.node_parent)
+                self.merged_master.request_reparent(parent)
 
     def parent_bones(self):
         if self.rig_org:

@@ -30,14 +30,25 @@ from rigify.base_rig import LazyRigComponent, stage
 
 
 class ControlBoneParentBase(LazyRigComponent):
+    """
+    Base class for components that generate parent mechanisms for skin controls.
+    The generated parent bone is accessible through the output_bone field or property.
+    """
+
+    # Run this component after the @stage methods of the owner node and its slave nodes
     rigify_sub_object_run_late = True
 
-    # This parent cannot be merged with other wrappers?
+    # This generator's output bone cannot be modified by generators layered on top.
+    # Otherwise they may optimize bone count by adding more constraints in place.
+    # (This generally signals the bone is shared between multiple users.)
     is_parent_frozen = False
 
     def __init__(self, rig, node):
         super().__init__(node)
+
+        # Rig that provides this parent mechanism.
         self.rig = rig
+        # Control node that the mechanism is provided for
         self.node = node
 
     def __eq__(self, other):
@@ -64,14 +75,20 @@ class ControlBoneParentOrg:
 
 
 class ControlBoneParentArmature(ControlBoneParentBase):
-    """Control node parent generator using Armature to parent the bone."""
+    """Control node parent generator using the Armature constraint to parent the bone."""
 
     def __init__(self, rig, node, *, bones, orientation=None, copy_scale=None, copy_rotation=None):
         super().__init__(rig, node)
+
+        # List of Armature constraint target specs for make_constraint (lazy).
         self.bones = bones
+        # Orientation quaternion for the bone (lazy)
         self.orientation = orientation
+        # Bone to copy scale from (lazy)
         self.copy_scale = copy_scale
+        # Bone to copy rotation from (lazy)
         self.copy_rotation = copy_rotation
+
         if copy_scale or copy_rotation:
             self.is_parent_frozen = True
 
@@ -101,6 +118,7 @@ class ControlBoneParentArmature(ControlBoneParentBase):
 
         assert len(self.targets) > 0
 
+        # Single target can be simplified to parenting
         if len(self.targets) == 1:
             target = force_lazy(self.targets[0])
             if isinstance(target, tuple):
@@ -112,9 +130,10 @@ class ControlBoneParentArmature(ControlBoneParentBase):
             )
 
     def rig_bones(self):
+        # Multiple targets use the Armature constraint
         if len(self.targets) > 1:
             self.make_constraint(
-                self.output_bone, 'ARMATURE', targets=force_lazy(self.bones),
+                self.output_bone, 'ARMATURE', targets=self.targets,
                 use_deform_preserve_volume=True
             )
 
@@ -127,6 +146,8 @@ class ControlBoneParentArmature(ControlBoneParentBase):
 
 
 class ControlBoneParentLayer(ControlBoneParentBase):
+    """Base class for parent generators that build on top of another mechanism."""
+
     def __init__(self, rig, node, parent):
         super().__init__(rig, node)
         self.parent = parent
@@ -137,6 +158,13 @@ class ControlBoneParentLayer(ControlBoneParentBase):
 
 
 class ControlBoneWeakParentLayer(ControlBoneParentLayer):
+    """
+    Base class for layered parent generator that is only used for the reparent source.
+    I.e. it doesn't affect the control for its owner rig, but only for other rigs
+    that have controls merged into this one.
+    """
+
+    # Inherit mode used to parent the pseudo-control to the output of this generator.
     inherit_scale_mode = 'AVERAGE'
 
     @staticmethod
@@ -168,6 +196,7 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
         self.limit_distance = []
 
     def enable_component(self):
+        # Automatically merge an unfrozen sequence of this generator instances
         while isinstance(self.parent, ControlBoneParentOffset) and not self.parent.is_parent_frozen:
             self.prepend_contents(self.parent)
             self.parent = self.parent.parent
@@ -175,6 +204,7 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
         super().enable_component()
 
     def prepend_contents(self, other):
+        """Merge all offsets stored in the other generator into the current one."""
         for key, val in other.copy_local.items():
             if key not in self.copy_local:
                 self.copy_local[key] = val
@@ -198,6 +228,11 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
         self.limit_distance = other.limit_distance + self.limit_distance
 
     def add_copy_local_location(self, target, *, influence=1, influence_expr=None, influence_vars={}):
+        """
+        Add a Copy Location (Local, Owner Orientation) offset.
+        The influence may be specified as a (lazy) constant, or a driver expression
+        with variables (using the same $var syntax as add_location_driver).
+        """
         if target not in self.copy_local:
             self.copy_local[target] = [0, [], []]
 
@@ -209,6 +244,11 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
             self.copy_local[target][0] += influence
 
     def add_location_driver(self, orientation, index, expression, variables):
+        """
+        Add a driver offsetting along the specified axis in the given Quaternion orientation.
+        The variables may have to be renamed due to conflicts between multiple add requests,
+        so the expression should use the $var syntax of Template to reference them.
+        """
         assert isinstance(variables, dict)
 
         key = tuple(round(x*10000) for x in orientation)
@@ -220,6 +260,7 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
         self.add_local[key][index].append((expression, variables))
 
     def add_limit_distance(self, target, **kwargs):
+        """Add a limit distance constraint with the given make_constraint arguments."""
         self.limit_distance.append((target, kwargs))
 
     def __eq__(self, other):
@@ -243,6 +284,7 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
             mch_name = make_derived_name(self.node.name, 'mch', '_poffset')
 
             if self.add_local:
+                # Generate a bone for every distinct orientation used for the drivers
                 for key in self.add_local:
                     self.mch_bones.append(self.node.make_bone(
                         mch_name, 1/4, rig=self.rig, orientation=self.add_orientations[key]))
@@ -268,10 +310,12 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
         variables = {}
         expressions = []
 
+        # Loop through all expressions and combine the variable maps.
         for expr, varset in items:
             template = Template(expr)
             varmap = {}
 
+            # Check that all variables are present
             try:
                 template.substitute({k: '' for k in varset})
             except Exception as e:
@@ -286,23 +330,27 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
                 except KeyError:
                     pass
 
-                # descriptors may not be hashable, so linear search
+                # Descriptors may not be hashable, so linear search
                 for vn, vdesc in variables.items():
                     if vdesc == desc:
                         varmap[name] = vn
                         break
                 else:
+                    # Find an unique name for the new variable and add to map
                     new_name = name
                     if new_name in variables:
                         for i in count(1):
                             new_name = '%s_%d' % (name, i)
                             if new_name not in variables:
                                 break
+
                     variables[new_name] = desc
                     varmap[name] = new_name
 
+            # Substitute the new names into the expression
             expressions.append(template.substitute(varmap))
 
+        # Add all expressions together
         if len(expressions) > 1:
             final_expr = '+'.join('('+expr+')' for expr in expressions)
         else:
@@ -311,6 +359,7 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
         return final_expr, variables
 
     def rig_bones(self):
+        # Emit the Copy Location constraints
         if self.copy_local:
             mch = self.mch_bones[0]
             for target, (influence, drivers, lazyinf) in self.copy_local.items():
@@ -328,6 +377,7 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
                     expr, variables = self.compile_driver(drivers)
                     self.make_driver(con, 'influence', expression=expr, variables=variables)
 
+        # Add the direct offset drivers
         if self.add_local:
             for mch, (key, specs) in zip(self.mch_bones, self.add_local.items()):
                 for index, vals in enumerate(specs):
@@ -336,5 +386,6 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
                         self.make_driver(mch, 'location', index=index,
                                          expression=expr, variables=variables)
 
+        # Add the limit distance constraints
         for target, kwargs in self.limit_distance:
             self.make_constraint(self.mch_bones[-1], 'LIMIT_DISTANCE', target, **kwargs)
