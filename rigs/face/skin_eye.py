@@ -23,8 +23,8 @@ import math
 
 from rigify.utils.naming import make_derived_name, mirror_name, change_name_side, Side, SideZ
 from rigify.utils.bones import align_bone_z_axis, put_bone
-from rigify.utils.widgets import create_widget
-from rigify.utils.widgets_basic import create_circle_widget
+from rigify.utils.widgets import widget_generator
+#from rigify.utils.widgets_basic import create_circle_widget
 from rigify.utils.switch_parent import SwitchParentBuilder
 from rigify.utils.misc import map_list, matrix_from_axis_pair, LazyRef
 
@@ -551,35 +551,28 @@ class EyeClusterControl(RigComponent):
             pt2d = [p.to_2d() / self.size for p in self.rig_points.values()]
             create_eyes_widget(self.obj, self.master_bone, points=pt2d)
 
+axis_vectors = {
+    'x': (1,0,0),
+    'y': (0,1,0),
+    'z': (0,0,1),
+    '-x': (-1,0,0),
+    '-y': (0,-1,0),
+    '-z': (0,0,-1),
+}
 
-def widget_generator(generate_func):
-    """
-    Decorator that encapsulates a call to create_widget, and only requires
-    the actual function to fill the provided vertex and edge lists.
+from itertools import permutations
 
-    Accepts parameters of create_widget, plus any keyword arguments the
-    wrapped function has.
-    """
-    @functools.wraps(generate_func)
-    def wrapper(rig, bone_name, bone_transform_name=None, **kwargs):
-        obj = create_widget(rig, bone_name, bone_transform_name)
-        if obj is not None:
-            verts = []
-            edges = []
+shuffle_matrix = {
+    sx+x+sy+y+sz+z: Matrix((
+        axis_vectors[sx+x], axis_vectors[sy+y], axis_vectors[sz+z]
+        )).transposed().freeze()
+    for x, y, z in permutations(['x', 'y', 'z'])
+    for sx in ('', '-')
+    for sy in ('', '-')
+    for sz in ('', '-')
+}
 
-            generate_func(verts, edges, **kwargs)
-
-            mesh = obj.data
-            mesh.from_pydata(verts, edges, [])
-            mesh.update()
-            return obj
-        else:
-            return None
-
-    return wrapper
-
-
-def generate_circle_geometry(verts, edges, center, radius, *, matrix=None, angle_range=None, steps=24):
+def generate_circle_geometry(geom, center, radius, *, matrix=None, angle_range=None, steps=24, radius_x=None, depth_x=0):
     """
     Generates a circle, adding vertices and edges to the lists.
     center, radius: parameters of the circle
@@ -589,7 +582,7 @@ def generate_circle_geometry(verts, edges, center, radius, *, matrix=None, angle
     """
     assert steps >= 3
 
-    base = len(verts)
+    base = len(geom.verts)
     start = 0
     delta = math.pi * 2 / steps
 
@@ -601,29 +594,45 @@ def generate_circle_geometry(verts, edges, center, radius, *, matrix=None, angle
             steps = max(3, math.ceil(abs(end - start) / delta) + 1)
             delta = (end - start) / (steps - 1)
 
+    if radius_x is None:
+        radius_x = radius
+
     center = center.to_3d()  # allow 2d center
 
     for i in range(steps):
         angle = start + delta * i
-        point = center + Vector((math.cos(angle), math.sin(angle), 0)) * radius
+        x = math.cos(angle)
+        y = math.sin(angle)
+        point = center + Vector((x * radius_x, y * radius, x * x * depth_x))
 
         if matrix:
             point = matrix @ point
 
-        verts.append(point)
+        geom.verts.append(point)
         if i > 0:
-            edges.append((base + i - 1, base + i))
+            geom.edges.append((base + i - 1, base + i))
 
     if not angle_range:
-        edges.append((base + steps - 1, base))
+        geom.edges.append((base + steps - 1, base))
 
 
 @widget_generator
-def create_eye_widget(verts, edges, *, size=1):
-    generate_circle_geometry(verts, edges, Vector((0, 0, 0)), size/2)
+def create_circle_widget(geom, *, radius=1.0, head_tail=0.0, head_tail_x=None, radius_x=None):
+    radius_x = radius_x if radius_x is not None else radius
+    ht_delta = head_tail_x - head_tail if head_tail_x is not None else 0
+    generate_circle_geometry(
+        geom, Vector((0, 0, head_tail)), radius,
+        matrix=shuffle_matrix['xzy'], radius_x=radius_x, depth_x=ht_delta,
+        steps=32
+    )
 
 
-def generate_circle_hull_geometry(verts, edges, points, radius, gap, *, matrix=None, steps=24):
+@widget_generator
+def create_eye_widget(geom, *, size=1):
+    generate_circle_geometry(geom, Vector((0, 0, 0)), size/2)
+
+
+def generate_circle_hull_geometry(geom, points, radius, gap, *, matrix=None, steps=24):
     """
     Given a list of 2D points forming a convex hull, generate a contour around
     it, with each point being circumscribed with a circle arc of given radius,
@@ -634,12 +643,12 @@ def generate_circle_hull_geometry(verts, edges, points, radius, gap, *, matrix=N
     if len(points) <= 1:
         if points:
             generate_circle_geometry(
-                verts, edges, points[0], radius,
+                geom, points[0], radius,
                 matrix=matrix, steps=steps
             )
         return
 
-    base = len(verts)
+    base = len(geom.verts)
     points_ex = [points[-1], *points, points[0]]
     agap = math.asin(gap / radius)
 
@@ -658,24 +667,24 @@ def generate_circle_hull_geometry(verts, edges, points, radius, gap, *, matrix=N
         anext -= max(agap, math.acos(min(1, vnext.length/radius/2)))
 
         if anext > aprev:
-            if len(verts) > base:
-                edges.append((len(verts)-1, len(verts)))
+            if len(geom.verts) > base:
+                geom.edges.append((len(geom.verts)-1, len(geom.verts)))
 
             generate_circle_geometry(
-                verts, edges, pcur, radius, angle_range=(aprev, anext),
+                geom, pcur, radius, angle_range=(aprev, anext),
                 matrix=matrix, steps=steps
             )
 
-    if len(verts) > base:
-        edges.append((len(verts)-1, base))
+    if len(geom.verts) > base:
+        geom.edges.append((len(geom.verts)-1, base))
 
 
 @widget_generator
-def create_eyes_widget(verts, edges, *, size=1, points):
+def create_eyes_widget(geom, *, size=1, points):
     hpoints = [points[i] for i in mathutils.geometry.convex_hull_2d(points)]
 
-    generate_circle_hull_geometry(verts, edges, hpoints, size*0.75, size*0.6)
-    generate_circle_hull_geometry(verts, edges, hpoints, size, size*0.85)
+    generate_circle_hull_geometry(geom, hpoints, size*0.75, size*0.6)
+    generate_circle_hull_geometry(geom, hpoints, size, size*0.85)
 
 
 def create_sample(obj):

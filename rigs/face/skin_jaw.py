@@ -24,7 +24,8 @@ import math
 from rigify.utils.naming import make_derived_name, Side, SideZ, get_name_side_z
 from rigify.utils.bones import align_bone_z_axis, put_bone
 from rigify.utils.misc import map_list, matrix_from_axis_pair, LazyRef
-from rigify.utils.widgets_basic import create_circle_widget
+#from rigify.utils.widgets_basic import create_circle_widget
+from .skin_eye import create_circle_widget
 
 from rigify.rigs.widgets import create_jaw_widget
 
@@ -294,7 +295,18 @@ class Rig(BaseSkinRig):
     @stage.generate_widgets
     def make_mouth_control_widget(self):
         ctrl = self.bones.ctrl.mouth
-        create_circle_widget(self.obj, ctrl, radius=0.6, head_tail=0.1)
+
+        width = (self.corners[Side.LEFT][0].point - self.corners[Side.RIGHT][0].point).length
+        height = (self.corners[SideZ.TOP][0].point - self.corners[SideZ.BOTTOM][0].point).length
+        back = (self.corners[Side.LEFT][0].point + self.corners[Side.RIGHT][0].point) / 2
+        front = (self.corners[SideZ.TOP][0].point + self.corners[SideZ.BOTTOM][0].point) / 2
+        depth = (front - back).length
+
+        create_circle_widget(
+            self.obj, ctrl,
+            radius=0.8 * (height / width), radius_x=0.6,
+            head_tail=0.2, head_tail_x=0.2 - (depth / width)
+        )
 
     ####################################################
     # Tracking MCH
