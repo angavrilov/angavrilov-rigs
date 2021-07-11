@@ -140,6 +140,12 @@ class BaseSkinChainRig(BaseSkinRig):
 
     chain_priority = 0
 
+    def initialize(self):
+        super().initialize()
+
+        if type(self).chain_priority is None:
+            self.chain_priority = self.params.skin_chain_priority
+
     def parent_bones(self):
         self.rig_parent_bone = force_lazy(self.get_child_chain_parent_next(self))
 
@@ -175,6 +181,11 @@ class BaseSkinChainRig(BaseSkinRig):
             min=-10, max=10, default=0,
             description='When merging controls, chains with higher priority always win'
         )
+
+    @classmethod
+    def parameters_ui(self, layout, params):
+        if self.chain_priority is None:
+            layout.prop(params, "skin_chain_priority")
 
 
 class BaseSkinChainRigWithRotationOption(BaseSkinChainRig):
@@ -224,3 +235,5 @@ class BaseSkinChainRigWithRotationOption(BaseSkinChainRig):
             row, "skin_control_orientation_bone", mirror_bone=True,
             base_class=BaseSkinChainRigWithRotationOption
         )
+
+        super().parameters_ui(layout, params)
