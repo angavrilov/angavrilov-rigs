@@ -271,7 +271,7 @@ class ControlBoneNode(MainMergeNode, BaseSkinNode):
         if parent not in requests:
             # If the actual reparent would be generated, weak parent will be needed.
             if self.has_weak_parent and not self.use_weak_parent:
-                if self.use_mix_parent or parent != self.node_parent_list[0]:
+                if self.use_mix_parent or parent != self.node_parent:
                     self.use_weak_parent = True
 
                     for weak_parent in self.node_parent_list_weak:
@@ -404,10 +404,7 @@ class ControlBoneNode(MainMergeNode, BaseSkinNode):
                 self.mix_parent_bone = self.make_bone(
                     make_derived_name(self._control_bone, 'mch', '_mix_parent'), 1/2)
             else:
-                self.reparent_bones[id(self.node_parent_list[0])] = self._control_bone
-
-                if self.use_weak_parent:
-                    self.reparent_bones[id(self.node_parent_list_weak[0])] = self.weak_parent_bone
+                self.reparent_bones[id(self.node_parent)] = self._control_bone
 
             # Make requested reparents
             self.reparent_bones_fake = set(self.reparent_bones.values())

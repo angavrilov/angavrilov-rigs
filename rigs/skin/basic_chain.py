@@ -31,6 +31,7 @@ from rigify.utils.rig import connected_children_names
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.naming import make_derived_name
 from rigify.utils.bones import align_bone_orientation, align_bone_to_axis, align_bone_roll
+from rigify.utils.mechanism import driver_var_distance
 from rigify.utils.widgets_basic import create_cube_widget, create_sphere_widget
 from rigify.utils.misc import map_list
 
@@ -443,38 +444,6 @@ class Rig(BaseSkinChainRigWithRotationOption):
         super().parameters_ui(layout, params)
 
         layout.prop(params, "skin_chain_priority")
-
-
-def driver_var_distance(target, *, bone1=None, target2=None, bone2=None, space1='WORLD', space2='WORLD'):
-    """
-    Create a Distance driver variable specification.
-
-    Usage:
-        make_driver(..., variables=[driver_var_distance(...)])
-
-    Target bone name can be provided via a 'lazy' callable closure without arguments.
-    """
-
-    assert space1 in {'WORLD', 'TRANSFORM', 'LOCAL'}
-    assert space2 in {'WORLD', 'TRANSFORM', 'LOCAL'}
-
-    target1_map = {
-        'id': target,
-        'transform_space': space1 + '_SPACE',
-    }
-
-    if bone1 is not None:
-        target1_map['bone_target'] = bone1
-
-    target2_map = {
-        'id': target2 or target,
-        'transform_space': space2 + '_SPACE',
-    }
-
-    if bone2 is not None:
-        target2_map['bone_target'] = bone2
-
-    return {'type': 'LOC_DIFF', 'targets': [target1_map, target2_map]}
 
 
 def create_sample(obj):

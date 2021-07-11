@@ -24,8 +24,7 @@ import math
 from rigify.utils.naming import make_derived_name, Side, SideZ, get_name_side_z
 from rigify.utils.bones import align_bone_z_axis, put_bone
 from rigify.utils.misc import map_list, matrix_from_axis_pair, LazyRef
-#from rigify.utils.widgets_basic import create_circle_widget
-from .skin_eye import create_circle_widget
+from rigify.utils.widgets_basic import create_circle_widget
 
 from rigify.rigs.widgets import create_jaw_widget
 
@@ -304,7 +303,7 @@ class Rig(BaseSkinRig):
 
         create_circle_widget(
             self.obj, ctrl,
-            radius=0.8 * (height / width), radius_x=0.6,
+            radius=0.2 + 0.5 * (height / width), radius_x=0.7,
             head_tail=0.2, head_tail_x=0.2 - (depth / width)
         )
 

@@ -23,8 +23,9 @@ import math
 
 from rigify.utils.naming import make_derived_name, mirror_name, change_name_side, Side, SideZ
 from rigify.utils.bones import align_bone_z_axis, put_bone
-from rigify.utils.widgets import widget_generator
-#from rigify.utils.widgets_basic import create_circle_widget
+from rigify.utils.widgets import (widget_generator, generate_circle_geometry,
+                                  generate_circle_hull_geometry)
+from rigify.utils.widgets_basic import create_circle_widget
 from rigify.utils.switch_parent import SwitchParentBuilder
 from rigify.utils.misc import map_list, matrix_from_axis_pair, LazyRef
 
@@ -551,132 +552,10 @@ class EyeClusterControl(RigComponent):
             pt2d = [p.to_2d() / self.size for p in self.rig_points.values()]
             create_eyes_widget(self.obj, self.master_bone, points=pt2d)
 
-axis_vectors = {
-    'x': (1,0,0),
-    'y': (0,1,0),
-    'z': (0,0,1),
-    '-x': (-1,0,0),
-    '-y': (0,-1,0),
-    '-z': (0,0,-1),
-}
-
-from itertools import permutations
-
-shuffle_matrix = {
-    sx+x+sy+y+sz+z: Matrix((
-        axis_vectors[sx+x], axis_vectors[sy+y], axis_vectors[sz+z]
-        )).transposed().freeze()
-    for x, y, z in permutations(['x', 'y', 'z'])
-    for sx in ('', '-')
-    for sy in ('', '-')
-    for sz in ('', '-')
-}
-
-def generate_circle_geometry(geom, center, radius, *, matrix=None, angle_range=None, steps=24, radius_x=None, depth_x=0):
-    """
-    Generates a circle, adding vertices and edges to the lists.
-    center, radius: parameters of the circle
-    matrix: transformation matrix (by default the circle is in the XY plane)
-    angle_range: pair of angles to generate an arc of the circle
-    steps: number of edges to cover the whole circle (reduced for arcs)
-    """
-    assert steps >= 3
-
-    base = len(geom.verts)
-    start = 0
-    delta = math.pi * 2 / steps
-
-    if angle_range:
-        start, end = angle_range
-        if start == end:
-            steps = 1
-        else:
-            steps = max(3, math.ceil(abs(end - start) / delta) + 1)
-            delta = (end - start) / (steps - 1)
-
-    if radius_x is None:
-        radius_x = radius
-
-    center = center.to_3d()  # allow 2d center
-
-    for i in range(steps):
-        angle = start + delta * i
-        x = math.cos(angle)
-        y = math.sin(angle)
-        point = center + Vector((x * radius_x, y * radius, x * x * depth_x))
-
-        if matrix:
-            point = matrix @ point
-
-        geom.verts.append(point)
-        if i > 0:
-            geom.edges.append((base + i - 1, base + i))
-
-    if not angle_range:
-        geom.edges.append((base + steps - 1, base))
-
-
-@widget_generator
-def create_circle_widget(geom, *, radius=1.0, head_tail=0.0, head_tail_x=None, radius_x=None):
-    radius_x = radius_x if radius_x is not None else radius
-    ht_delta = head_tail_x - head_tail if head_tail_x is not None else 0
-    generate_circle_geometry(
-        geom, Vector((0, 0, head_tail)), radius,
-        matrix=shuffle_matrix['xzy'], radius_x=radius_x, depth_x=ht_delta,
-        steps=32
-    )
-
 
 @widget_generator
 def create_eye_widget(geom, *, size=1):
     generate_circle_geometry(geom, Vector((0, 0, 0)), size/2)
-
-
-def generate_circle_hull_geometry(geom, points, radius, gap, *, matrix=None, steps=24):
-    """
-    Given a list of 2D points forming a convex hull, generate a contour around
-    it, with each point being circumscribed with a circle arc of given radius,
-    and keeping the given distance gap from the lines connecting the circles.
-    """
-    assert radius >= gap
-
-    if len(points) <= 1:
-        if points:
-            generate_circle_geometry(
-                geom, points[0], radius,
-                matrix=matrix, steps=steps
-            )
-        return
-
-    base = len(geom.verts)
-    points_ex = [points[-1], *points, points[0]]
-    agap = math.asin(gap / radius)
-
-    for i, pprev, pcur, pnext in zip(count(0), points_ex[0:], points_ex[1:], points_ex[2:]):
-        vprev = pprev - pcur
-        vnext = pnext - pcur
-
-        # Compute bearings to adjacent points
-        aprev = math.atan2(vprev.y, vprev.x)
-        anext = math.atan2(vnext.y, vnext.x)
-        if anext <= aprev:
-            anext += math.pi * 2
-
-        # Adjust gap for circles that are too close
-        aprev += max(agap, math.acos(min(1, vprev.length/radius/2)))
-        anext -= max(agap, math.acos(min(1, vnext.length/radius/2)))
-
-        if anext > aprev:
-            if len(geom.verts) > base:
-                geom.edges.append((len(geom.verts)-1, len(geom.verts)))
-
-            generate_circle_geometry(
-                geom, pcur, radius, angle_range=(aprev, anext),
-                matrix=matrix, steps=steps
-            )
-
-    if len(geom.verts) > base:
-        geom.edges.append((len(geom.verts)-1, base))
 
 
 @widget_generator
