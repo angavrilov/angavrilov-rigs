@@ -325,7 +325,8 @@ class ControlBoneNode(MainMergeNode, BaseSkinNode):
             self.node_parent_list_weak = parent_list
 
             self.node_parent_list = [ControlBoneWeakParentLayer.strip(p) for p in parent_list]
-            self.has_weak_parent = any((p is not pw) for p, pw in zip(self.node_parent_list, parent_list))
+            self.has_weak_parent = any((p is not pw)
+                                       for p, pw in zip(self.node_parent_list, parent_list))
 
             for parent in self.node_parent_list:
                 self.register_use_parent(parent)

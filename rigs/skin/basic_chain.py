@@ -67,7 +67,6 @@ class Rig(BaseSkinChainRigWithRotationOption):
         self.num_orgs = len(orgs)
         self.length = sum([self.get_bone(b).length for b in orgs]) / len(orgs)
 
-
     ####################################################
     # OVERRIDES
 
@@ -96,7 +95,6 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
     def get_all_controls(self):
         return [node.control_bone for node in self.control_nodes]
-
 
     ####################################################
     # CONTROL NODES
@@ -314,7 +312,6 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
         # Remove any shear created by the previous steps
         self.make_constraint(mch, 'LIMIT_ROTATION', name='remove_shear')
-
 
     ##############################
     # ORG chain

@@ -37,7 +37,6 @@ class BaseSkinRig(BaseRig):
     def initialize(self):
         self.rig_parent_bone = self.get_bone_parent(self.base_bone)
 
-
     ##########################
     # Utilities
 
