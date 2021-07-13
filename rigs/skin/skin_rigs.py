@@ -193,10 +193,12 @@ class BaseSkinChainRigWithRotationOption(BaseSkinChainRig):
     for controls via specifying an arbitrary template bone.
     """
 
+    use_skin_control_orientation_bone = True
+
     def get_final_control_node_rotation(self, node):
         bone_name = self.params.skin_control_orientation_bone
 
-        if bone_name:
+        if bone_name and self.use_skin_control_orientation_bone:
             # Retrieve the orientation from the specified ORG bone
             try:
                 org_name = make_derived_name(bone_name, 'org')
@@ -224,15 +226,16 @@ class BaseSkinChainRigWithRotationOption(BaseSkinChainRig):
 
     @classmethod
     def parameters_ui(self, layout, params):
-        from rigify.operators.copy_mirror_parameters import make_copy_parameter_button
+        if self.use_skin_control_orientation_bone:
+            from rigify.operators.copy_mirror_parameters import make_copy_parameter_button
 
-        row = layout.row()
-        row.prop_search(params, "skin_control_orientation_bone",
-                        bpy.context.active_object.pose, "bones", text="Orientation")
+            row = layout.row()
+            row.prop_search(params, "skin_control_orientation_bone",
+                            bpy.context.active_object.pose, "bones", text="Orientation")
 
-        make_copy_parameter_button(
-            row, "skin_control_orientation_bone", mirror_bone=True,
-            base_class=BaseSkinChainRigWithRotationOption
-        )
+            make_copy_parameter_button(
+                row, "skin_control_orientation_bone", mirror_bone=True,
+                base_class=BaseSkinChainRigWithRotationOption
+            )
 
         super().parameters_ui(layout, params)

@@ -334,7 +334,9 @@ class Rig(BasicChainRig):
         params.skin_chain_falloff_to_controls = bpy.props.BoolProperty(
             name='Propagate To Controls',
             default=False,
-            description='Propagate scale and/or twist to tweak controls, rather than just within the chain',
+            description='Expose scale and/or twist propagated to tweak controls to be seen as ' +
+                        'parent motion by glue or other chains using Merge Parent Rotation And ' +
+                        'Scale. Otherwise it is only propagated internally within this chain',
         )
 
         ControlLayersOption.SKIN_PRIMARY.add_parameters(params)

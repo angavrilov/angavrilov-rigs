@@ -428,7 +428,9 @@ class Rig(BaseSkinChainRigWithRotationOption):
         params.skin_chain_use_reparent = bpy.props.BoolProperty(
             name='Merge Parent Rotation And Scale',
             default=False,
-            description='When merging controls, apply parent-induced rotation/scale difference',
+            description='When controls are merged into ones owned by other chains, include ' +
+                        'parent-induced rotation/scale difference into handle motion. Otherwise ' +
+                        'only local motion of the control bone is used',
         )
 
         params.skin_chain_use_scale = bpy.props.BoolVectorProperty(
