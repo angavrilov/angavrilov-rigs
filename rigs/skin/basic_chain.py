@@ -302,13 +302,14 @@ class Rig(BaseSkinChainRigWithRotationOption):
             )
 
         # Apply user rotation and scale
-        input_bone = node.reparent_bone if self.use_reparent_handles else node.control_bone
+        if not rig_is_child(self, node.merged_master.rig):
+            input_bone = node.reparent_bone if self.use_reparent_handles else node.control_bone
 
-        self.make_constraint(
-            mch, 'COPY_TRANSFORMS', input_bone, name='copy_user',
-            target_space='LOCAL_OWNER_ORIENT', owner_space='LOCAL',
-            mix_mode='BEFORE_FULL',
-        )
+            self.make_constraint(
+                mch, 'COPY_TRANSFORMS', input_bone, name='copy_user',
+                target_space='LOCAL_OWNER_ORIENT', owner_space='LOCAL',
+                mix_mode='BEFORE_FULL',
+            )
 
         # Remove any shear created by the previous steps
         self.make_constraint(mch, 'LIMIT_ROTATION', name='remove_shear')
@@ -502,6 +503,22 @@ class Rig(BaseSkinChainRigWithRotationOption):
         row.prop(params, "skin_chain_connect_sharp_angle", index=1, text="End")
 
         super().parameters_ui(layout, params)
+
+
+def rig_is_child(rig, parent, *, strict=True):
+    if parent is None:
+        return True
+
+    if rig and strict:
+        rig = rig.rigify_parent
+
+    while rig:
+        if rig is parent:
+            return True
+
+        rig = rig.rigify_parent
+
+    return False
 
 
 def create_sample(obj):
