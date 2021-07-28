@@ -246,29 +246,28 @@ class BridgeGlueRig(BaseGlueRig, BasicChainRig):
         # Still only bind to one bone
         return [bone.name]
 
+    # Assign lowest priority
     chain_priority = -20
+
+    # Orientation is irrelevant since controls should be merged into others
     use_skin_control_orientation_bone = False
 
     ####################################################
     # QUERY NODES
 
-    @stage.initialize
-    def init_glue_nodes(self):
-        super().init_glue_nodes()
-
-        if not self.glue_use_tail:
-            # Ensure there is a control there
-            bone = self.get_bone(self.base_bone)
-
-            self.tail_position_node = ControlQueryNode(
-                self, self.base_bone, point=bone.tail
-            )
+    @stage.prepare_bones
+    def prepare_glue_nodes(self):
+        # Verify that all nodes of the chain have been merged into others
+        for node in self.control_nodes:
+            if node.is_master_node:
+                self.raise_error('glue control {} was not merged', node.name)
 
     ##############################
     # ORG chain
 
     @stage.rig_bones
     def rig_org_chain(self):
+        # Move the user constraints away before the chain adds new ones
         self.rig_glue_constraints()
 
         super().rig_org_chain()

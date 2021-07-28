@@ -301,7 +301,9 @@ class Rig(BaseSkinChainRigWithRotationOption):
                 space='LOCAL', mix_mode='BEFORE_FULL',
             )
 
-        # Apply user rotation and scale
+        # Apply user rotation and scale.
+        # If the node belongs to a parent of this rig, there is a good chance this
+        # may cause weird double transformation, so skip it in that case.
         if not rig_is_child(self, node.merged_master.rig):
             input_bone = node.reparent_bone if self.use_reparent_handles else node.control_bone
 
@@ -404,10 +406,12 @@ class Rig(BaseSkinChainRigWithRotationOption):
             'c': driver_var_distance(self.obj, bone1=next_node1.control_bone, bone2=next_node2.control_bone),
         }
 
+        # Compute and set the ease in rest pose
         initval = -1+2*smoothstep(-1, 1, acos((a*a+b*b-c*c)/max(2*a*b, 1e-10))/angle)
 
         setattr(pbone.bone, field, initval)
 
+        # Create the actual driver
         self.make_driver(
             pbone, field,
             expression='%f+2*smoothstep(-1,1,acos((a*a+b*b-c*c)/max(2*a*b,1e-10))/%f)' % (-1-initval, angle),
