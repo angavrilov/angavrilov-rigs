@@ -113,7 +113,7 @@ def process_all(process):
     process('forehead.L.001', parent='face', rig='skin.basic_chain')
     process('forehead.L.002', parent='face', rig='skin.basic_chain')
 
-    process('temple.L', parent='face', rig='skin.basic_chain', connect_ends=True, priority=1)
+    process('temple.L', parent='face', rig='skin.basic_chain', connect_ends=False, priority=1)
     process('jaw.L', parent='jaw_master', rig='skin.basic_chain', connect_ends='prev')
     process('jaw.L.001')
     process('chin.L')
@@ -128,7 +128,7 @@ def process_all(process):
     process('forehead.R.001', parent='face', rig='skin.basic_chain')
     process('forehead.R.002', parent='face', rig='skin.basic_chain')
 
-    process('temple.R', parent='face', rig='skin.basic_chain', connect_ends=True, priority=1)
+    process('temple.R', parent='face', rig='skin.basic_chain', connect_ends=False, priority=1)
     process('jaw.R', parent='jaw_master', rig='skin.basic_chain', connect_ends='prev')
     process('jaw.R.001')
     process('chin.R')
