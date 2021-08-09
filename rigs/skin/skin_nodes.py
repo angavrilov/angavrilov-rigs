@@ -28,6 +28,7 @@ from rigify.utils.naming import NameSides, make_derived_name, get_name_base_and_
 from rigify.utils.bones import BoneUtilityMixin, set_bone_widget_transform
 from rigify.utils.widgets_basic import create_cube_widget, create_sphere_widget
 from rigify.utils.mechanism import MechanismUtilityMixin
+from rigify.utils.rig import get_parent_rigs
 
 from rigify.utils.node_merger import MainMergeNode, QueryMergeNode
 
@@ -52,14 +53,6 @@ class ControlNodeEnd(enum.IntEnum):
     START = -1
     MIDDLE = 0
     END = 1
-
-
-def _get_parent_rigs(rig):
-    result = []
-    while rig:
-        result.append(rig)
-        rig = rig.rigify_parent
-    return result
 
 
 class BaseSkinNode(MechanismUtilityMixin, BoneUtilityMixin):
@@ -169,8 +162,8 @@ class ControlBoneNode(MainMergeNode, BaseSkinNode):
         """Check if the current bone is preferrable as master when choosing of same sized groups."""
 
         # Prefer bones that have strictly more parents
-        my_parents = list(reversed(_get_parent_rigs(self.rig.rigify_parent)))
-        other_parents = list(reversed(_get_parent_rigs(other.rig.rigify_parent)))
+        my_parents = list(reversed(get_parent_rigs(self.rig.rigify_parent)))
+        other_parents = list(reversed(get_parent_rigs(other.rig.rigify_parent)))
 
         if len(my_parents) > len(other_parents) and my_parents[0:len(other_parents)] == other_parents:
             return True

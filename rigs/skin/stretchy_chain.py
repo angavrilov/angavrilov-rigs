@@ -19,6 +19,7 @@
 # <pep8 compliant>
 
 import bpy
+import enum
 
 from itertools import count, repeat
 from mathutils import Vector, Matrix
@@ -51,6 +52,12 @@ ControlLayersOption.SKIN_SECONDARY = ControlLayersOption(
 )
 
 
+class Control(enum.IntEnum):
+    START = 0
+    MIDDLE = 1
+    END = 2
+
+
 class Rig(BasicChainRig):
     """
     Skin chain that propagates motion of its end and middle controls, resulting in
@@ -68,58 +75,47 @@ class Rig(BasicChainRig):
 
         orgs = self.bones.org
 
+        # Check the middle pivot location
         self.pivot_pos = self.params.skin_chain_pivot_pos
 
         if not (0 <= self.pivot_pos < len(orgs)):
             self.raise_error('Invalid middle control position: {}', self.pivot_pos)
 
+        # Compute cumulative chain lengths from the start
         bone_lengths = [self.get_bone(org).length for org in orgs]
 
         self.chain_lengths = [sum(bone_lengths[0:i]) for i in range(len(orgs)+1)]
 
+        # Compute the chain start to end direction vector
         if not self.params.skin_chain_falloff_length:
             self.pivot_base = self.get_bone(orgs[0]).head
             self.pivot_vector = self.get_bone(orgs[-1]).tail - self.pivot_base
             self.pivot_length = self.pivot_vector.length
             self.pivot_vector.normalize()
 
+        # Compute the position of the middle pivot within the chain
         if self.pivot_pos:
             pivot_point = self.get_bone(orgs[self.pivot_pos]).head
             self.middle_pivot_factor = self.get_pivot_projection(pivot_point, self.pivot_pos)
 
+    ####################################################
+    # UTILITIES
+
     def get_pivot_projection(self, pos, index):
+        """Compute the interpolation factor within the chain for a control at pos and index."""
         if self.params.skin_chain_falloff_length:
+            # Position along the length of the chain
             return self.chain_lengths[index] / self.chain_lengths[-1]
         else:
+            # Position projected on the line connecting chain ends
             return clamp((pos - self.pivot_base).dot(self.pivot_vector) / self.pivot_length)
 
-    ####################################################
-    # CONTROL NODES
-
-    def make_control_node(self, i, org, is_end):
-        node = super().make_control_node(i, org, is_end)
-
-        if i == 0 or i == self.num_orgs:
-            node.layer = ControlNodeLayer.FREE
-            node.icon = ControlNodeIcon.FREE
-            if i == 0:
-                node.node_needs_reparent = self.use_falloff_curve(0)
-            else:
-                node.node_needs_reparent = self.use_falloff_curve(2)
-        elif i == self.pivot_pos:
-            node.layer = ControlNodeLayer.MIDDLE_PIVOT
-            node.icon = ControlNodeIcon.MIDDLE_PIVOT
-            node.node_needs_reparent = self.use_falloff_curve(1)
-        else:
-            node.layer = ControlNodeLayer.TWEAK
-            node.icon = ControlNodeIcon.TWEAK
-
-        return node
-
     def use_falloff_curve(self, idx):
+        """Check if the given Control has any influence on other nodes."""
         return self.params.skin_chain_falloff[idx] > -10
 
     def apply_falloff_curve(self, factor, idx):
+        """Compute the falloff weight at position factor for the given Control."""
         weight = self.params.skin_chain_falloff[idx]
 
         if self.params.skin_chain_falloff_spherical[idx]:
@@ -134,45 +130,67 @@ class Rig(BasicChainRig):
             # parabolic falloff
             return 1 - (1 - factor) ** (2 ** weight)
 
-    def apply_falloff_start(self, factor):
-        return self.apply_falloff_curve(factor, 0)
+    ####################################################
+    # CONTROL NODES
 
-    def apply_falloff_middle(self, factor):
-        return self.apply_falloff_curve(factor, 1)
+    def make_control_node(self, i, org, is_end):
+        node = super().make_control_node(i, org, is_end)
 
-    def apply_falloff_end(self, factor):
-        return self.apply_falloff_curve(factor, 2)
+        # Chain end control nodes
+        if i == 0 or i == self.num_orgs:
+            node.layer = ControlNodeLayer.FREE
+            node.icon = ControlNodeIcon.FREE
+            if i == 0:
+                node.node_needs_reparent = self.use_falloff_curve(Control.START)
+            else:
+                node.node_needs_reparent = self.use_falloff_curve(Control.END)
+        # Middle pivot control node
+        elif i == self.pivot_pos:
+            node.layer = ControlNodeLayer.MIDDLE_PIVOT
+            node.icon = ControlNodeIcon.MIDDLE_PIVOT
+            node.node_needs_reparent = self.use_falloff_curve(Control.MIDDLE)
+        # Other (tweak) control nodes
+        else:
+            node.layer = ControlNodeLayer.TWEAK
+            node.icon = ControlNodeIcon.TWEAK
+
+        return node
 
     def extend_control_node_parent(self, parent, node):
         if node.rig != self or node.index in (0, self.num_orgs):
             return parent
 
         parent = ControlBoneParentOffset(self, node, parent)
+
+        # Add offsets from the end controls to other nodes
         factor = self.get_pivot_projection(node.point, node.index)
 
-        if self.use_falloff_curve(0):
+        if self.use_falloff_curve(Control.START):
             parent.add_copy_local_location(
                 LazyRef(self.control_nodes[0], 'reparent_bone'),
-                influence=self.apply_falloff_start(1 - factor),
+                influence=self.apply_falloff_curve(1 - factor, Control.START),
             )
 
-        if self.use_falloff_curve(2):
+        if self.use_falloff_curve(Control.END):
             parent.add_copy_local_location(
                 LazyRef(self.control_nodes[-1], 'reparent_bone'),
-                influence=self.apply_falloff_end(factor),
+                influence=self.apply_falloff_curve(factor, Control.END),
             )
 
-        if self.pivot_pos and node.index != self.pivot_pos and self.use_falloff_curve(1):
-            if node.index < self.pivot_pos:
-                factor = factor / self.middle_pivot_factor
-            else:
-                factor = (1 - factor) / (1 - self.middle_pivot_factor)
+        # Add offset from the middle pivot
+        if self.pivot_pos and node.index != self.pivot_pos:
+            if self.use_falloff_curve(Control.MIDDLE):
+                if node.index < self.pivot_pos:
+                    factor = factor / self.middle_pivot_factor
+                else:
+                    factor = (1 - factor) / (1 - self.middle_pivot_factor)
 
-            parent.add_copy_local_location(
-                LazyRef(self.control_nodes[self.pivot_pos], 'reparent_bone'),
-                influence=self.apply_falloff_middle(clamp(factor)),
-            )
+                parent.add_copy_local_location(
+                    LazyRef(self.control_nodes[self.pivot_pos], 'reparent_bone'),
+                    influence=self.apply_falloff_curve(clamp(factor), Control.MIDDLE),
+                )
 
+        # If Propagate To Controls is set, add an extra wrapper for twist/scale
         if node.index != self.pivot_pos and self.params.skin_chain_falloff_to_controls:
             if self.params.skin_chain_falloff_twist or self.params.skin_chain_falloff_scale:
                 parent = ControlBoneChainPropagate(self, node, parent)
@@ -182,9 +200,11 @@ class Rig(BasicChainRig):
     def get_control_node_layers(self, node):
         layers = None
 
+        # Secondary Layers used for the middle pivot
         if self.pivot_pos and node.index == self.pivot_pos:
             layers = ControlLayersOption.SKIN_SECONDARY.get(self.params)
 
+        # Primary Layers used for the end controls, and middle if secondary not set
         if not layers and node.index in (0, self.num_orgs, self.pivot_pos):
             layers = ControlLayersOption.SKIN_PRIMARY.get(self.params)
 
@@ -199,7 +219,7 @@ class Rig(BasicChainRig):
         self.rig_propagate(mch, node)
 
     def rig_propagate(self, mch, node):
-        # Interpolate chain twist between pivots
+        # Interpolate chain twist and/or scale between pivots
         if node.index not in (0, self.num_orgs, self.pivot_pos):
             index1, index2, factor = self.get_propagate_spec(node)
 
@@ -210,6 +230,7 @@ class Rig(BasicChainRig):
                 self.rig_propagate_scale(mch, index1, index2, factor)
 
     def get_propagate_spec(self, node):
+        """Compute source handle indices and factor for propagating scale and twist to node."""
         index1 = 0
         index2 = self.num_orgs
 
@@ -234,6 +255,7 @@ class Rig(BasicChainRig):
         handles = self.get_all_mch_handles()
         handles_pre = self.get_all_mch_handles_pre()
 
+        # Get Y Twist rotation of the input handles
         variables = {
             'y1': driver_var_transform(
                 self.obj, handles[index1], type='ROT_Y',
@@ -245,6 +267,8 @@ class Rig(BasicChainRig):
             ),
         }
 
+        # If pre handles are used, exclude the pre-handle twist,
+        # since it is caused by mechanisms and not user animation.
         if handles_pre[index1] != handles[index1]:
             variables['p1'] = driver_var_transform(
                 self.obj, handles_pre[index1], type='ROT_Y',
@@ -263,6 +287,7 @@ class Rig(BasicChainRig):
         else:
             expr2 = 'y2'
 
+        # Create the driver for Y Euler Rotation
         bone = self.get_bone(mch)
         bone.rotation_mode = 'YXZ'
 
@@ -378,7 +403,8 @@ class Rig(BasicChainRig):
 
 class ControlBoneChainPropagate(ControlBoneWeakParentLayer):
     """
-    Parent mechanism generator that propagates chain twist/scale.
+    Parent mechanism generator that propagates chain twist/scale
+    to the reparent system, if Propagate To Controls is used.
     """
     inherit_scale_mode = 'FULL'
 
@@ -391,6 +417,7 @@ class ControlBoneChainPropagate(ControlBoneWeakParentLayer):
         )
 
     def generate_bones(self):
+        # The parent bone is based on the handle and aligned appropriately.
         handle = self.rig.bones.mch.handles[self.node.index]
         self.output_bone = self.copy_bone(handle, make_derived_name(handle, 'mch', '_parent'))
 
@@ -398,6 +425,7 @@ class ControlBoneChainPropagate(ControlBoneWeakParentLayer):
         self.set_bone_parent(self.output_bone, self.parent.output_bone, inherit_scale='AVERAGE')
 
     def rig_bones(self):
+        # Add the twist/scale propagation rigging to the bone like the handle.
         self.rig.rig_propagate(self.output_bone, self.node)
 
 

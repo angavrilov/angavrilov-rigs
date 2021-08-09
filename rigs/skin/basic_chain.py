@@ -27,7 +27,7 @@ from mathutils import Vector, Matrix, Quaternion
 from math import acos
 from bl_math import smoothstep
 
-from rigify.utils.rig import connected_children_names
+from rigify.utils.rig import connected_children_names, rig_is_child
 from rigify.utils.layers import ControlLayersOption
 from rigify.utils.naming import make_derived_name
 from rigify.utils.bones import align_bone_orientation, align_bone_to_axis, align_bone_roll
@@ -141,9 +141,9 @@ class Rig(BaseSkinChainRigWithRotationOption):
     #
     # mch:
     #   handles[]
-    #     B-Bone handles.
+    #     Final B-Bone handles.
     #   handles_pre[] (optional, may be copy of handles[])
-    #     Separate mechanism bones that emulates Auto handle behavior.
+    #     Mechanism bones that emulate Auto handle behavior.
     # deform[]:
     #   Deformation B-Bones.
     #
@@ -152,7 +152,10 @@ class Rig(BaseSkinChainRigWithRotationOption):
     ####################################################
     # B-Bone handle MCH
 
-    # Generate two layers of handle bones - used by other rigs
+    # Generate two layers of handle bones, 'pre' for the auto handle mechanism,
+    # and final handles combining that with user transformation. This flag may
+    # be enabled by parent controller rigs when needed in order to be able to
+    # inject more automatic handle positioning mechanisms.
     use_pre_handles = False
 
     def get_connected_node(self, node):
@@ -279,9 +282,11 @@ class Rig(BaseSkinChainRigWithRotationOption):
             mch = self.bones.mch
             chain = self.get_node_chain_with_mirror()
 
+            # Rig Auto-handle emulation (on pre handles)
             for args in zip(count(0), mch.handles_pre, chain, chain[1:], chain[2:]):
                 self.rig_mch_handle_auto(*args)
 
+            # Apply user transformation to the final handles
             for args in zip(count(0), mch.handles, chain, chain[1:], chain[2:], mch.handles_pre):
                 self.rig_mch_handle_user(*args)
 
@@ -294,7 +299,8 @@ class Rig(BaseSkinChainRigWithRotationOption):
         self.make_constraint(mch, 'DAMPED_TRACK', hend.control_bone, name='track_next')
 
     def rig_mch_handle_user(self, i, mch, prev_node, node, next_node, pre):
-        # Copy from the pre handle if used
+        # Copy from the pre handle if used. Before Full is used to allow
+        # drivers on local transform channels to still work.
         if pre != mch:
             self.make_constraint(
                 mch, 'COPY_TRANSFORMS', pre, name='copy_pre',
@@ -304,7 +310,7 @@ class Rig(BaseSkinChainRigWithRotationOption):
         # Apply user rotation and scale.
         # If the node belongs to a parent of this rig, there is a good chance this
         # may cause weird double transformation, so skip it in that case.
-        if not rig_is_child(self, node.merged_master.rig):
+        if not rig_is_child(self, node.merged_master.rig, strict=True):
             input_bone = node.reparent_bone if self.use_reparent_handles else node.control_bone
 
             self.make_constraint(
@@ -507,22 +513,6 @@ class Rig(BaseSkinChainRigWithRotationOption):
         row.prop(params, "skin_chain_connect_sharp_angle", index=1, text="End")
 
         super().parameters_ui(layout, params)
-
-
-def rig_is_child(rig, parent, *, strict=True):
-    if parent is None:
-        return True
-
-    if rig and strict:
-        rig = rig.rigify_parent
-
-    while rig:
-        if rig is parent:
-            return True
-
-        rig = rig.rigify_parent
-
-    return False
 
 
 def create_sample(obj):
