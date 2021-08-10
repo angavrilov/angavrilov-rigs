@@ -44,7 +44,10 @@ from bl_math import clamp
 
 
 class Rig(BaseSkinRig):
-    """Jaw rig."""
+    """
+    Jaw rig that manages loops of four mouth chains each. The chains
+    must connect together at their ends using L/R and T/B symmetry.
+    """
 
     def find_org_bones(self, bone):
         return bone.name
@@ -58,7 +61,7 @@ class Rig(BaseSkinRig):
         self.init_child_chains()
 
     ####################################################
-    # Child chains
+    # UTILITIES
 
     def get_mouth_orientation(self):
         jaw_axis = self.get_bone(self.base_bone).y_axis.copy()
@@ -66,16 +69,8 @@ class Rig(BaseSkinRig):
 
         return matrix_from_axis_pair(jaw_axis, (0, 0, 1), 'z').to_quaternion()
 
-    def init_child_chains(self):
-        self.child_chains = [
-            rig
-            for rig in self.rigify_children
-            if isinstance(rig, BasicChainRig) and get_name_side_z(rig.base_bone) != SideZ.MIDDLE
-        ]
-
-        self.corners = {Side.LEFT: [], Side.RIGHT: [], SideZ.TOP: [], SideZ.BOTTOM: []}
-
     def is_corner_node(self, node):
+        # Corners are nodes where two T/B or L/R chains meet.
         siblings = [n for n in node.get_merged_siblings() if n.rig in self.child_chains]
 
         sides_x = set(n.name_split.side for n in siblings)
@@ -95,7 +90,51 @@ class Rig(BaseSkinRig):
 
         return None
 
+    ####################################################
+    # BONES
+    #
+    # ctrl:
+    #   master:
+    #     Main jaw open control.
+    #   mouth:
+    #     Main control for adjusting mouth position and scale.
+    # mch:
+    #   lock:
+    #     Jaw master mirror for the locked mouth.
+    #   top[]:
+    #     Jaw master mirrors for the loop top.
+    #   bottom[]:
+    #     Jaw master mirrors for the loop bottom.
+    #   middle[]:
+    #     Middle position between top[] and bottom[].
+    #   mouth_parent:
+    #     Parent for ctrl.mouth, mouth_layers and *_in
+    #   mouth_layers[]:
+    #     Apply fade out of ctrl.mouth motion for outer loops.
+    #   top_in[], bottom_in[], middle_in[]:
+    #     Extract jaw motions relative to mouth_parent.
+    #   top_out[], bottom_out[], middle_out[]:
+    #     Combine mouth and jaw motions via Copy Local from *_in.
+    # deform:
+    #   master:
+    #     Deform mirror of ctrl.master.
+    #
+    ####################################################
+
+    ####################################################
+    # CHILD CHAINS
+
+    def init_child_chains(self):
+        self.child_chains = [
+            rig
+            for rig in self.rigify_children
+            if isinstance(rig, BasicChainRig) and get_name_side_z(rig.base_bone) != SideZ.MIDDLE
+        ]
+
+        self.corners = {Side.LEFT: [], Side.RIGHT: [], SideZ.TOP: [], SideZ.BOTTOM: []}
+
     def arrange_child_chains(self):
+        """Sort child chains into their corresponding mouth loops."""
         if self.chain_to_layer is not None:
             return
 
@@ -133,14 +172,14 @@ class Rig(BaseSkinRig):
         self.mouth_space = matrix
         self.to_mouth_space = matrix.inverted()
 
-        # Build a mapping of child chain to layer
+        # Build a mapping of child chain to layer (i.e. sort multiple mouth loops)
         self.chain_to_layer = {}
-        self.chain_sides = {}
+        self.chains_by_side = {}
 
         for k, v in list(self.corners.items()):
             self.corners[k] = ordered = sorted(v, key=lambda p: (p.point - center).length)
 
-            side_set = set()
+            chain_set = set()
 
             for i, node in enumerate(ordered):
                 for sibling in node.get_merged_siblings():
@@ -152,17 +191,17 @@ class Rig(BaseSkinRig):
                                 "Conflicting mouth chain layer on {}: {} and {}", sibling.rig.base_bone, i, cur_layer)
 
                         self.chain_to_layer[sibling.rig] = i
-                        side_set.add(sibling.rig)
+                        chain_set.add(sibling.rig)
 
-            self.chain_sides[k] = side_set
+            self.chains_by_side[k] = chain_set
 
         for child in self.child_chains:
             if child not in self.chain_to_layer:
                 self.raise_error("Could not determine chain layer on {}", child.base_bone)
 
-        if not self.chain_sides[Side.LEFT].isdisjoint(self.chain_sides[Side.RIGHT]):
+        if not self.chains_by_side[Side.LEFT].isdisjoint(self.chains_by_side[Side.RIGHT]):
             self.raise_error("Left/right conflict in mouth")
-        if not self.chain_sides[SideZ.TOP].isdisjoint(self.chain_sides[SideZ.BOTTOM]):
+        if not self.chains_by_side[SideZ.TOP].isdisjoint(self.chains_by_side[SideZ.BOTTOM]):
             self.raise_error("Top/bottom conflict in mouth")
 
         # Find left/right direction
@@ -172,14 +211,14 @@ class Rig(BaseSkinRig):
 
         for node in self.corners[Side.LEFT]:
             if (self.to_mouth_space @ node.point).x * self.left_sign <= 0:
-                self.raise_error("Bad left corner {}", node.name)
+                self.raise_error("Bad left corner location: {}", node.name)
 
         for node in self.corners[Side.RIGHT]:
             if (self.to_mouth_space @ node.point).x * self.left_sign >= 0:
-                self.raise_error("Bad right corner {}", node.name)
+                self.raise_error("Bad right corner location: {}", node.name)
 
-        # Find layer radius
-        self.layer_radius = [
+        # Find layer loop widths
+        self.layer_width = [
             (self.corners[Side.LEFT][i].point - self.corners[Side.RIGHT][i].point).length
             for i in range(self.num_layers)
         ]
@@ -189,10 +228,13 @@ class Rig(BaseSkinRig):
 
         bone = self.get_bone(name)
         bone.matrix = self.mouth_space
-        bone.length = (self.corners[Side.LEFT][0].point -
-                       self.corners[Side.RIGHT][0].point).length * scale
+        bone.length = self.layer_width[0] * scale
+
+    ####################################################
+    # CONTROL NODES
 
     def get_node_parent_bones(self, node):
+        """Get parent bones and their armature weights for the given control node."""
         self.arrange_child_chains()
 
         # Choose correct layer bones
@@ -213,7 +255,7 @@ class Rig(BaseSkinRig):
                 return [middle_mch]
 
         # Otherwise blend two
-        if node.rig in self.chain_sides[SideZ.TOP]:
+        if node.rig in self.chains_by_side[SideZ.TOP]:
             side_mch = top_mch
         else:
             side_mch = bottom_mch
@@ -226,10 +268,8 @@ class Rig(BaseSkinRig):
 
         return [(side_mch, factor), (middle_mch, 1-factor)]
 
-    ####################################################
-    # Control nodes
-
     def get_parent_for_name(self, name, parent_bone):
+        """Get single replacement parent for the given child bone."""
         if parent_bone == self.base_bone:
             side = get_name_side_z(name)
             if side == SideZ.TOP:
@@ -308,7 +348,7 @@ class Rig(BaseSkinRig):
         )
 
     ####################################################
-    # Tracking MCH
+    # Jaw Motion MCH
 
     @stage.generate_bones
     def make_mch_lock_bones(self):
@@ -358,17 +398,17 @@ class Rig(BaseSkinRig):
         mch = self.bones.mch
         ctrl = self.bones.ctrl
 
-        # Lock position
+        # Lock position follows jaw master with configured influence
         self.make_constraint(
             mch.lock, 'COPY_TRANSFORMS', ctrl.master,
             influence=self.params.jaw_locked_influence,
         )
 
-        # Innermost top bone
+        # Innermost top bone follows lock position according to slider
         con = self.make_constraint(mch.top[0], 'COPY_TRANSFORMS', mch.lock)
         self.make_driver(con, 'influence', variables=[(ctrl.master, 'mouth_lock')])
 
-        # Innermost bottom bone
+        # Innermost bottom bone follows jaw master with configured influence, and then lock
         self.make_constraint(
             mch.bottom[0], 'COPY_TRANSFORMS', ctrl.master,
             influence=self.params.jaw_mouth_influence,
@@ -377,7 +417,7 @@ class Rig(BaseSkinRig):
         con = self.make_constraint(mch.bottom[0], 'COPY_TRANSFORMS', mch.lock)
         self.make_driver(con, 'influence', variables=[(ctrl.master, 'mouth_lock')])
 
-        # Outer layer bones
+        # Outer layer bones interpolate toward innermost based on influence decay
         coeff = self.params.jaw_secondary_influence
 
         for i, name in enumerate(mch.top[1:]):
@@ -386,6 +426,7 @@ class Rig(BaseSkinRig):
         for i, name in enumerate(mch.bottom[1:]):
             self.make_constraint(name, 'COPY_TRANSFORMS', mch.bottom[0], influence=coeff ** (1+i))
 
+        # Middle bones interpolate the middle between top and bottom
         for mid, bottom in zip(mch.middle, mch.bottom):
             self.make_constraint(mid, 'COPY_TRANSFORMS', bottom, influence=0.5)
 
@@ -430,35 +471,43 @@ class Rig(BaseSkinRig):
 
         self.set_bone_parent(mch.mouth_parent, mch.middle[0])
 
-        for name in mch.mouth_layers + mch.top_in + mch.bottom_in + mch.middle_in:
-            self.set_bone_parent(name, mch.mouth_parent)
+        for name_list in [mch.mouth_layers, mch.top_in, mch.bottom_in, mch.middle_in]:
+            for name in name_list:
+                self.set_bone_parent(name, mch.mouth_parent)
 
-        for top, bottom, middle, parent in zip(mch.top_out, mch.bottom_out, mch.middle_out, layers):
-            self.set_bone_parent(top, parent)
-            self.set_bone_parent(bottom, parent)
-            self.set_bone_parent(middle, parent)
+        for name_list in [mch.top_out, mch.bottom_out, mch.middle_out]:
+            for name, parent in zip(name_list, layers):
+                self.set_bone_parent(name, parent)
 
     @stage.rig_bones
     def rig_mch_mouth_bones(self):
         mch = self.bones.mch
         ctrl = self.bones.ctrl.mouth
 
+        # Mouth influence fade out
         for i, name in enumerate(mch.mouth_layers):
             self.rig_mch_mouth_layer_bone(i+1, name, ctrl)
 
-        for dest, src in zip(mch.top_in + mch.bottom_in + mch.middle_in, mch.top + mch.bottom + mch.middle):
+        # Transfer and combine jaw motion with mouth
+        all_jaw = mch.top + mch.bottom + mch.middle
+        all_in = mch.top_in + mch.bottom_in + mch.middle_in
+        all_out = mch.top_out + mch.bottom_out + mch.middle_out
+
+        for dest, src in zip(all_in, all_jaw):
             self.make_constraint(dest, 'COPY_TRANSFORMS', src)
 
-        for dest, src in zip(mch.top_out + mch.bottom_out + mch.middle_out, mch.top_in + mch.bottom_in + mch.middle_in):
+        for dest, src in zip(all_out, all_in):
             self.make_constraint(dest, 'COPY_TRANSFORMS', src, space='LOCAL')
 
     def rig_mch_mouth_layer_bone(self, i, mch, ctrl):
+        # Fade location and rotation based on influence decay
         inf = self.params.jaw_secondary_influence ** i
 
         self.make_constraint(mch, 'COPY_LOCATION', ctrl, influence=inf)
         self.make_constraint(mch, 'COPY_ROTATION', ctrl, influence=inf)
 
-        inf_scale = inf * self.layer_radius[0] / self.layer_radius[i]
+        # For scale, additionally take radius into account
+        inf_scale = inf * self.layer_width[0] / self.layer_width[i]
 
         self.make_constraint(mch, 'COPY_SCALE', ctrl, influence=inf_scale)
 
@@ -503,7 +552,7 @@ class Rig(BaseSkinRig):
         params.jaw_secondary_influence = bpy.props.FloatProperty(
             name="Secondary Influence Falloff",
             default=0.5, min=0, max=1,
-            description="Reduction factor for each level of secondary chains"
+            description="Reduction factor for each level of secondary mouth loops"
         )
 
     @classmethod

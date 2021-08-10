@@ -293,7 +293,7 @@ class Rig(BasicChainRig):
 
         self.make_driver(
             bone, 'rotation_euler', index=1,
-            expression='lerp({},{},{})'.format(expr1, expr2, clamp(factor)),
+            expression=f'lerp({expr1},{expr2},{clamp(factor)})',
             variables=variables
         )
 

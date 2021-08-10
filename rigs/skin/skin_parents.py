@@ -259,9 +259,13 @@ class ControlBoneParentOffset(ControlBoneParentLayer):
 
         self.add_local[key][index].append((expression, variables))
 
-    def add_limit_distance(self, target, **kwargs):
+    def add_limit_distance(self, target, *, ensure_order=False, **kwargs):
         """Add a limit distance constraint with the given make_constraint arguments."""
         self.limit_distance.append((target, kwargs))
+
+        # Prevent merging from reordering this limit
+        if ensure_order:
+            self.is_parent_frozen = True
 
     def __eq__(self, other):
         return (

@@ -97,6 +97,19 @@ class Rig(BaseSkinChainRigWithRotationOption):
         return [node.control_bone for node in self.control_nodes]
 
     ####################################################
+    # BONES
+    #
+    # mch:
+    #   handles[]
+    #     Final B-Bone handles.
+    #   handles_pre[] (optional, may be copy of handles[])
+    #     Mechanism bones that emulate Auto handle behavior.
+    # deform[]:
+    #   Deformation B-Bones.
+    #
+    ####################################################
+
+    ####################################################
     # CONTROL NODES
 
     @stage.initialize
@@ -135,19 +148,6 @@ class Rig(BaseSkinChainRigWithRotationOption):
 
     def make_control_node_widget(self, node):
         create_sphere_widget(self.obj, node.control_bone)
-
-    ####################################################
-    # BONES
-    #
-    # mch:
-    #   handles[]
-    #     Final B-Bone handles.
-    #   handles_pre[] (optional, may be copy of handles[])
-    #     Mechanism bones that emulate Auto handle behavior.
-    # deform[]:
-    #   Deformation B-Bones.
-    #
-    ####################################################
 
     ####################################################
     # B-Bone handle MCH
