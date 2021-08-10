@@ -34,12 +34,15 @@ from rigify.utils.misc import map_list, force_lazy, LazyRef
 
 from rigify.base_rig import stage
 
-from ..skin_parents import ControlBoneParentOffset
-from ..skin_rigs import BaseSkinRig
+from rigify.rigs.skin.skin_parents import ControlBoneParentOffset
+from rigify.rigs.skin.skin_rigs import BaseSkinRig
 
 
 class Rig(BaseSkinRig):
-    """Elastic deform scale/pinch brush control."""
+    """
+    Parent controller rig using the math behind the elastic deform
+    scale/pinch sculpt brush to move child control nodes.
+    """
 
     def find_org_bones(self, bone):
         return bone.name
