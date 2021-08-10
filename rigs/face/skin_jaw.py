@@ -107,14 +107,12 @@ class Rig(BaseSkinRig):
     #     Jaw master mirrors for the loop bottom.
     #   middle[]:
     #     Middle position between top[] and bottom[].
-    #   mouth_parent:
+    #   mouth_parent = middle[0]:
     #     Parent for ctrl.mouth, mouth_layers and *_in
     #   mouth_layers[]:
     #     Apply fade out of ctrl.mouth motion for outer loops.
-    #   top_in[], bottom_in[], middle_in[]:
-    #     Extract jaw motions relative to mouth_parent.
     #   top_out[], bottom_out[], middle_out[]:
-    #     Combine mouth and jaw motions via Copy Local from *_in.
+    #     Combine mouth and jaw motions via Copy Custom to Local.
     # deform:
     #   master:
     #     Deform mirror of ctrl.master.
@@ -364,6 +362,8 @@ class Rig(BaseSkinRig):
         mch.bottom = map_list(self.make_mch_bottom_bone, range(self.num_layers), repeat(org))
         mch.middle = map_list(self.make_mch_middle_bone, range(self.num_layers), repeat(org))
 
+        mch.mouth_parent = mch.middle[0]
+
     def make_mch_top_bone(self, i, org):
         return self.copy_bone(org, make_derived_name(org, 'mch', '_top'), scale=1/4, parent=True)
 
@@ -437,17 +437,8 @@ class Rig(BaseSkinRig):
     def make_mch_mouth_bones(self):
         mch = self.bones.mch
 
-        mch.mouth_parent = self.make_mch_mouth_bone(0, '_mouth_parent', 3/4)
-
         mch.mouth_layers = map_list(self.make_mch_mouth_bone,
                                     range(1, self.num_layers), repeat('_mouth_layer'), repeat(0.6))
-
-        mch.top_in = map_list(self.make_mch_mouth_inout_bone,
-                              range(self.num_layers), repeat('_top_in'), repeat(0.55))
-        mch.bottom_in = map_list(self.make_mch_mouth_inout_bone,
-                                 range(self.num_layers), repeat('_bottom_in'), repeat(0.5))
-        mch.middle_in = map_list(self.make_mch_mouth_inout_bone,
-                                 range(self.num_layers), repeat('_middle_in'), repeat(0.45))
 
         mch.top_out = map_list(self.make_mch_mouth_inout_bone,
                                range(self.num_layers), repeat('_top_out'), repeat(0.4))
@@ -469,11 +460,8 @@ class Rig(BaseSkinRig):
         mch = self.bones.mch
         layers = [self.bones.ctrl.mouth, *mch.mouth_layers]
 
-        self.set_bone_parent(mch.mouth_parent, mch.middle[0])
-
-        for name_list in [mch.mouth_layers, mch.top_in, mch.bottom_in, mch.middle_in]:
-            for name in name_list:
-                self.set_bone_parent(name, mch.mouth_parent)
+        for name in mch.mouth_layers:
+            self.set_bone_parent(name, mch.mouth_parent)
 
         for name_list in [mch.top_out, mch.bottom_out, mch.middle_out]:
             for name, parent in zip(name_list, layers):
@@ -490,14 +478,14 @@ class Rig(BaseSkinRig):
 
         # Transfer and combine jaw motion with mouth
         all_jaw = mch.top + mch.bottom + mch.middle
-        all_in = mch.top_in + mch.bottom_in + mch.middle_in
         all_out = mch.top_out + mch.bottom_out + mch.middle_out
 
-        for dest, src in zip(all_in, all_jaw):
-            self.make_constraint(dest, 'COPY_TRANSFORMS', src)
-
-        for dest, src in zip(all_out, all_in):
-            self.make_constraint(dest, 'COPY_TRANSFORMS', src, space='LOCAL')
+        for dest, src in zip(all_out, all_jaw):
+            self.make_constraint(
+                dest, 'COPY_TRANSFORMS', src,
+                owner_space='LOCAL', target_space='CUSTOM',
+                space_object=self.obj, space_subtarget=mch.mouth_parent,
+            )
 
     def rig_mch_mouth_layer_bone(self, i, mch, ctrl):
         # Fade location and rotation based on influence decay
