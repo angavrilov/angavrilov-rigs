@@ -27,7 +27,7 @@ from mathutils import Vector
 
 from rigify.utils.animation import add_generic_snap_fk_to_ik, add_fk_ik_snap_buttons
 from rigify.utils.mechanism import driver_var_transform
-from rigify.utils.bones import align_bone_x_axis, set_bone_widget_transform
+from rigify.utils.bones import compute_chain_x_axis, align_bone_x_axis, set_bone_widget_transform
 from rigify.utils.naming import make_derived_name
 from rigify.utils.switch_parent import SwitchParentBuilder
 from rigify.utils.layers import ControlLayersOption
