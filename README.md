@@ -160,12 +160,21 @@ on the main mesh.
 * **Only Use Shape Anchor Location** tells the rig to only use the translation
   of the shape anchor object for a simpler mechanism.
 
+This [blend file](https://www.dropbox.com/s/k0n0vjigd19c3ns/demo-breast-jiggle.blend?dl=1)
+with included detailed text instructions demonstrates applying this in a breast rig
+for a character with a clothing switch option (uses only a torso to reduce file size).
+
 ## Skin Rigs (Experimental)
 
 These rigs implement a flexible system for rigging skin using multiple interacting
 B-Bone chains. This is developed as a replacement for the Rigify face rig.
 
 These rigs currently require the latest nightly build of Blender 3.0
+
+The core part of the skin system has been moved to Rigify and is documented
+in the [Blender Manual](https://docs.blender.org/manual/en/dev/addons/rigging/rigify/rig_types/skin.html)
+for users, and on the [Blender Wiki](https://wiki.blender.org/wiki/Process/Addons/Rigify/RigUtils/Skin)
+for scripters.
 
 ### Elastic Stretch Transform (`skin.transform.elastic_stretch`)
 
