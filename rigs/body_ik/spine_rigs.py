@@ -29,6 +29,7 @@ from rigify.utils.animation import SCRIPT_UTILITIES_BAKE
 from rigify.utils.naming import strip_org, make_derived_name
 from rigify.utils.misc import map_list
 from rigify.utils.bones import put_bone, set_bone_widget_transform
+from rigify.utils.mechanism import driver_var_distance
 
 from rigify.base_rig import stage
 
@@ -187,11 +188,21 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
             chain_count=2, use_stretch=False,
         )
 
-    def rig_hip_ik_output(self, out, lim_both, lim_in1, lim_in2):
-        inf_vars = {'inf1':(lim_in1, 'influence'), 'inf2':(lim_in2, 'influence')}
+    def rig_hip_ik_output(self, out, lim_both, lim_in1, lim_in2, dist1, dist2):
+        inf_vars = {
+            'inf1': (lim_in1, 'influence'),
+            'inf2': (lim_in2, 'influence'),
+            'dist': driver_var_distance(self.obj, bone1=dist1, bone2=dist2),
+        }
+
+        scale = self.get_bone(lim_both).length * 0.001
+
+        step_out = f'smoothstep({scale:.1e},{scale*2:.1e},dist)'
+        step_in = f'smoothstep({-scale*3:.1e},{-scale*2:.1e},-dist)'
 
         con = self.make_constraint(out, 'COPY_LOCATION', lim_both)
-        self.make_driver(con, 'influence', variables=inf_vars, expression='min(inf1,inf2)')
+        self.make_driver(
+            con, 'influence', variables=inf_vars, expression=f'min(inf1,inf2)*{step_out}')
 
         con = self.make_constraint(
             out, 'LIMIT_DISTANCE', lim_in1, head_tail=1, space='POSE',
@@ -200,7 +211,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         self.make_driver(con, 'distance', variables=[(lim_in1, 'length')])
         self.make_driver(
             con, 'influence', variables=inf_vars,
-            expression='(inf1-inf2)/(1-inf2) if inf1 > inf2 else 0'
+            expression=f'lerp(min(inf1,inf2)*{step_in},1,(inf1-inf2)/(1-inf2) if inf1 > inf2 else 0)'
         )
 
         con = self.make_constraint(
@@ -210,7 +221,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         self.make_driver(con, 'distance', variables=[(lim_in2, 'length')])
         self.make_driver(
             con, 'influence', variables=inf_vars,
-            expression='(inf2-inf1)/(1-inf1) if inf2 > inf1 else 0'
+            expression=f'lerp(min(inf1,inf2)*{step_in},1,(inf2-inf1)/(1-inf1) if inf2 > inf1 else 0)'
         )
 
     ####################################################
@@ -233,7 +244,8 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
     def rig_hip_offset_bones(self):
         mch = self.bones.mch
 
-        self.rig_hip_ik_output(mch.hip_output, mch.hip_ik[1], mch.leg_offset[0], mch.leg_offset[1])
+        self.rig_hip_ik_output(
+            mch.hip_output, mch.hip_ik[1], mch.leg_offset[0], mch.leg_offset[1], mch.hip_ik[0], mch.hip_ik_tgt)
         self.make_constraint(mch.hip_offset, 'COPY_LOCATION', self.get_hip_offset_base_bone(), invert_xyz=(True,True,True), use_offset=True, space='POSE')
 
     def get_hip_offset_base_bone(self):
