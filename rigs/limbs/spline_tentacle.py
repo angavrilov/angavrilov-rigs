@@ -7,7 +7,7 @@ import math
 
 from rigify.utils.errors import MetarigError
 from rigify.utils.naming import strip_org, make_derived_name
-from rigify.utils.bones import put_bone
+from rigify.utils.bones import put_bone, set_bone_widget_transform
 from rigify.utils.mechanism import make_driver, make_constraint, driver_var_transform
 from rigify.utils.widgets import create_widget
 from rigify.utils.widgets_basic import create_circle_widget, create_sphere_widget
@@ -315,18 +315,12 @@ class Rig(SimpleChainRig):
     @stage.generate_widgets
     def make_twist_control_widgets(self):
         if not self.use_tip:
-            self.make_twist_control_widget(self.bones.ctrl.end_twist, self.bones.org[-1], 0.75)
+            self.make_twist_control_widget(self.bones.ctrl.end_twist, self.bones.org[-1], 0.85)
 
     def make_twist_control_widget(self, ctrl, org, size=1.0, head_tail=0.5):
-        bone = self.get_bone(ctrl)
-        bone_org = self.get_bone(org)
+        set_bone_widget_transform(self.obj, ctrl, org, target_size=True)
 
-        scale = bone_org.length / bone.length
-
-        bone.custom_shape_transform = bone_org
-        bone.custom_shape_scale = scale
-
-        create_twist_widget(self.obj, ctrl, size=size/scale, head_tail=head_tail)
+        create_twist_widget(self.obj, ctrl, size=size, head_tail=head_tail)
 
     ##############################
     # Twist controls MCH
