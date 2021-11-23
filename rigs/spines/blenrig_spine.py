@@ -145,12 +145,14 @@ class Rig(BaseSpineRig):
 
     @stage.configure_bones
     def configure_end_control_bones(self):
-        self.configure_end_control_bone(0, self.bones.ctrl.hips)
-        self.configure_end_control_bone(1, self.bones.ctrl.chest)
+        orgs = self.bones.org
+        self.configure_end_control_bone(0, self.bones.ctrl.hips, orgs[0])
+        self.configure_end_control_bone(1, self.bones.ctrl.chest, orgs[-1])
 
-    def configure_end_control_bone(self, i, ctrl):
+    def configure_end_control_bone(self, i, ctrl, org):
         bone = self.get_bone(ctrl)
         bone.lock_scale = True, True, True
+        bone.rotation_mode = self.get_bone(org).rotation_mode
 
     @stage.generate_widgets
     def make_end_control_widgets(self):
@@ -219,6 +221,8 @@ class Rig(BaseSpineRig):
     def configure_ik_tweak_bone(self, i, ctrl):
         bone = self.get_bone(ctrl)
         bone.lock_scale = True, True, True
+        bone.rotation_mode = 'XZY'
+        bone.lock_rotation = True, False, True
 
     @stage.rig_bones
     def rig_ik_tweak_chain(self):
@@ -466,7 +470,7 @@ def create_sample(obj):
     pbone.lock_rotation = (False, False, False)
     pbone.lock_rotation_w = False
     pbone.lock_scale = (False, False, False)
-    pbone.rotation_mode = 'QUATERNION'
+    pbone.rotation_mode = 'XZY'
 
     try:
         pbone.rigify_parameters.tweak_layers = [False, False, False, False, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False]
@@ -478,21 +482,21 @@ def create_sample(obj):
     pbone.lock_rotation = (False, False, False)
     pbone.lock_rotation_w = False
     pbone.lock_scale = (False, False, False)
-    pbone.rotation_mode = 'QUATERNION'
+    pbone.rotation_mode = 'XZY'
     pbone = obj.pose.bones[bones['spine.002']]
     pbone.rigify_type = ''
     pbone.lock_location = (False, False, False)
     pbone.lock_rotation = (False, False, False)
     pbone.lock_rotation_w = False
     pbone.lock_scale = (False, False, False)
-    pbone.rotation_mode = 'QUATERNION'
+    pbone.rotation_mode = 'XZY'
     pbone = obj.pose.bones[bones['spine.003']]
     pbone.rigify_type = ''
     pbone.lock_location = (False, False, False)
     pbone.lock_rotation = (False, False, False)
     pbone.lock_rotation_w = False
     pbone.lock_scale = (False, False, False)
-    pbone.rotation_mode = 'QUATERNION'
+    pbone.rotation_mode = 'XZY'
 
     bpy.ops.object.mode_set(mode='EDIT')
     for bone in arm.edit_bones:
