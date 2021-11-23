@@ -93,15 +93,16 @@ class Rig(spine_rigs.BaseBodyIkSpineRig, blenrig_spine.Rig):
     ####################################################
     # Hip offset bones
 
+    first_tweak_offset = 1
+
     def get_hip_offset_base_bone(self):
         return self.bones.mch.ik_forward[0]
 
-    @stage.rig_bones
-    def rig_deform_chain(self):
-        inputs = [self.bones.ctrl.tweak[0], *self.bones.org[1:], self.bones.mch.last_tweak_offset]
-        for args in zip(count(0), self.bones.deform, inputs, inputs[1:]):
-            self.rig_deform_bone(*args)
+    def rig_org_bone(self, i, org, tweak, next_tweak):
+        super().rig_org_bone(i, org, tweak, next_tweak)
 
+        if i == 0:
+            self.rig_tweak_offset_bone(i, org)
 
 
 def create_sample(obj):

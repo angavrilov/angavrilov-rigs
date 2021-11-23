@@ -63,9 +63,8 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
     #     Output of hip IK correction.
     #   hip_offset:
     #     Global position represents the offset applied by Hip IK.
-    #   last_tweak_offset:
-    #     Offset bone for the last tweak. With the ORG bones forms
-    #     the corrected tweak chain.
+    #   tweak_offsets[]:
+    #     Offset bones used as parents for the tweak controls.
     #   leg_offset[]:
     #     Offset bones between leg base and hip base.
     #   hip_ik[], hip_ik_tgt:
@@ -252,45 +251,54 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         return self.get_result_bone()
 
     ####################################################
-    # Apply offsets
+    # Apply offsets to tweaks
+
+    first_tweak_offset = 0
 
     @stage.generate_bones
-    def make_last_tweak_offset_bone(self):
-        org = self.bones.org
-        mch = self.bones.mch
-        mch.last_tweak_offset = self.copy_bone(org[-1], make_derived_name(org[-1], 'mch', '.end_offset'), scale=0.5)
-        put_bone(self.obj, mch.last_tweak_offset, self.get_bone(org[-1]).tail)
+    def make_tweak_offset_chain(self):
+        orgs = self.bones.org
+        start = self.first_tweak_offset
+
+        # It's necessary to inject offsets into tweak parents for connected
+        # head/tail to work correctly. Trying to optimize by applying offsets
+        # to ORG bones doesn't work.
+        self.bones.mch.tweak_offset = map_list(
+            self.make_tweak_offset_bone, count(start), orgs[start:] + orgs[-1:])
+
+    def make_tweak_offset_bone(self, i, org):
+        name = self.copy_bone(org, make_derived_name(org, 'mch', '.tweak_offset'), parent=False, scale=0.25)
+
+        if i == len(self.bones.org):
+            put_bone(self.obj, name, self.get_bone(org).tail)
+
+        return name
 
     @stage.parent_bones
-    def parent_last_tweak_offset_bone(self):
-        self.set_bone_parent(self.bones.mch.last_tweak_offset, self.bones.ctrl.tweak[-1])
+    def parent_tweak_chain(self):
+        super().parent_tweak_chain()
+
+        start = self.first_tweak_offset
+
+        for i, tweak, offset in zip(count(start), self.bones.ctrl.tweak[start:], self.bones.mch.tweak_offset):
+            self.parent_tweak_offset_bone(i, tweak, offset, self.get_bone_parent(tweak))
+
+    def parent_tweak_offset_bone(self, i, tweak, offset, tweak_parent):
+        self.set_bone_parent(tweak, offset)
+        self.set_bone_parent(offset, tweak_parent)
 
     @stage.rig_bones
-    def rig_last_tweak_offset_bone(self):
-        mch = self.bones.mch
-        self.make_constraint(mch.last_tweak_offset, 'COPY_LOCATION', mch.hip_offset, use_offset=True, space='POSE')
+    def rig_tweak_offset_chain(self):
+        start = self.first_tweak_offset
 
-    def rig_org_bone(self, i, org, tweak, next_tweak):
-        self.make_constraint(org, 'COPY_LOCATION', self.bones.mch.hip_offset, use_offset=True, space='POSE')
+        for i, offset in zip(count(start), self.bones.mch.tweak_offset):
+            self.rig_tweak_offset_bone(i, offset)
 
-    @stage.rig_bones
-    def rig_deform_chain(self):
-        inputs = [*self.bones.org, self.bones.mch.last_tweak_offset]
-        for args in zip(count(0), self.bones.deform, inputs, inputs[1:]):
-            self.rig_deform_bone(*args)
-
-    '''
-    @stage.generate_widgets
-    def make_tweak_widgets(self):
-        tweaks = self.bones.ctrl.tweak
-
-        super().make_tweak_widgets()
-
-        for tweak, org in zip(tweaks, self.bones.org):
-            set_bone_widget_transform(self.obj, tweak, org)
-
-        set_bone_widget_transform(self.obj, tweaks[-1], self.bones.mch.last_tweak_offset)
-    '''
+    def rig_tweak_offset_bone(self, i, offset):
+        self.make_constraint(
+            offset, 'COPY_LOCATION', self.bones.mch.hip_offset,
+            use_offset=True, space='POSE'
+        )
 
 
 ##########################
