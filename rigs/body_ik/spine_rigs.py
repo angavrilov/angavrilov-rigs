@@ -89,12 +89,12 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         add_spine_ik_snap(
             panel,
             master=self.bones.ctrl.master,
-            result=self.get_result_bone(),
+            result=self.get_pre_hip_ik_result_bone(),
             final=self.bones.org[0]
         )
 
-    def get_result_bone(self):
-        return self.bones.ctrl.tweak[0]
+    def get_pre_hip_ik_result_bone(self):
+        raise NotImplementedError
 
     ####################################################
     # Leg offset MCH bones
@@ -112,7 +112,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
     @stage.parent_bones
     def parent_leg_offset_mch_bones(self):
         for mch in self.bones.mch.leg_offset:
-            self.set_bone_parent(mch, self.get_result_bone())
+            self.set_bone_parent(mch, self.get_pre_hip_ik_result_bone())
 
     @stage.configure_bones
     def configure_leg_offset_mch_bones(self):
@@ -161,7 +161,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
             self.rig_hip_ik_mch_bone(*args)
 
         self.make_constraint(mch.hip_ik[0], 'COPY_LOCATION', mch.leg_offset[0], head_tail=1)
-        self.rig_hip_ik_system(mch.hip_ik[0], mch.hip_ik[1], mch.hip_ik_tgt, self.get_result_bone())
+        self.rig_hip_ik_system(mch.hip_ik[0], mch.hip_ik[1], mch.hip_ik_tgt, self.get_pre_hip_ik_result_bone())
 
     def rig_hip_ik_mch_bone(self, i, mch_ik, mch_in):
         self.make_driver(mch_ik, 'scale', index=1, variables=[(mch_in, 'length')])
@@ -236,7 +236,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
     @stage.parent_bones
     def parent_hip_offset_bones(self):
         mch = self.bones.mch
-        self.set_bone_parent(mch.hip_output, self.get_result_bone())
+        self.set_bone_parent(mch.hip_output, self.get_pre_hip_ik_result_bone())
         self.set_bone_parent(mch.hip_offset, mch.hip_output)
 
     @stage.rig_bones
@@ -248,23 +248,26 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         self.make_constraint(mch.hip_offset, 'COPY_LOCATION', self.get_hip_offset_base_bone(), invert_xyz=(True,True,True), use_offset=True, space='POSE')
 
     def get_hip_offset_base_bone(self):
-        return self.get_result_bone()
+        return self.get_pre_hip_ik_result_bone()
+
+    def get_leg_parent_bone(self):
+        return self.bones.mch.hip_output
 
     ####################################################
     # Apply offsets to tweaks
 
-    first_tweak_offset = 0
+    def get_first_tweak_parent(self):
+        return self.bones.mch.hip_output
 
     @stage.generate_bones
     def make_tweak_offset_chain(self):
         orgs = self.bones.org
-        start = self.first_tweak_offset
 
         # It's necessary to inject offsets into tweak parents for connected
         # head/tail to work correctly. Trying to optimize by applying offsets
         # to ORG bones doesn't work.
         self.bones.mch.tweak_offset = map_list(
-            self.make_tweak_offset_bone, count(start), orgs[start:] + orgs[-1:])
+            self.make_tweak_offset_bone, count(1), orgs[1:] + orgs[-1:])
 
     def make_tweak_offset_bone(self, i, org):
         name = self.copy_bone(org, make_derived_name(org, 'mch', '.tweak_offset'), parent=False, scale=0.25)
@@ -278,9 +281,11 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
     def parent_tweak_chain(self):
         super().parent_tweak_chain()
 
-        start = self.first_tweak_offset
+        tweak = self.bones.ctrl.tweak
 
-        for i, tweak, offset in zip(count(start), self.bones.ctrl.tweak[start:], self.bones.mch.tweak_offset):
+        self.set_bone_parent(tweak[0], self.get_first_tweak_parent())
+
+        for i, tweak, offset in zip(count(1), tweak[1:], self.bones.mch.tweak_offset):
             self.parent_tweak_offset_bone(i, tweak, offset, self.get_bone_parent(tweak))
 
     def parent_tweak_offset_bone(self, i, tweak, offset, tweak_parent):
@@ -289,9 +294,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
 
     @stage.rig_bones
     def rig_tweak_offset_chain(self):
-        start = self.first_tweak_offset
-
-        for i, offset in zip(count(start), self.bones.mch.tweak_offset):
+        for i, offset in zip(count(1), self.bones.mch.tweak_offset):
             self.rig_tweak_offset_bone(i, offset)
 
     def rig_tweak_offset_bone(self, i, offset):

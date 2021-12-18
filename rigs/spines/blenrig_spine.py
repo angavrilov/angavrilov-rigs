@@ -390,17 +390,9 @@ class Rig(BaseSpineRig):
 
     @stage.parent_bones
     def parent_tweak_chain(self):
-        # Experiment: First tweak only affects the deform bone
-        parents = [self.bones.org[0], *self.bones.ctrl.fk, self.bones.ctrl.fk[-1]]
+        fk = self.bones.ctrl.fk
+        parents = [self.bones.mch.ik_forward[0], *fk, fk[-1]]
         for args in zip(self.bones.ctrl.tweak, parents):
-            self.set_bone_parent(*args)
-
-    ####################################################
-    # ORG bones
-
-    @stage.parent_bones
-    def parent_org_chain(self):
-        for args in zip(self.bones.org, [self.bones.mch.ik_forward[0], *self.bones.ctrl.tweak[1:]]):
             self.set_bone_parent(*args)
 
     ####################################################

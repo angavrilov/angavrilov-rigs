@@ -50,12 +50,12 @@ class Rig(spine_rigs.BaseBodyIkSpineRig, blenrig_spine.Rig):
         spine_rigs.add_spine_ik_snap(
             panel,
             master=self.bones.ctrl.hips,
-            result=self.get_result_bone(),
+            result=self.get_pre_hip_ik_result_bone(),
             final=self.bones.mch.ik_forward[0],
             text='Snap Hips to Hip IK',
         )
 
-    def get_result_bone(self):
+    def get_pre_hip_ik_result_bone(self):
         return self.bones.mch.ik_forward_base
 
     ####################################################
@@ -93,16 +93,8 @@ class Rig(spine_rigs.BaseBodyIkSpineRig, blenrig_spine.Rig):
     ####################################################
     # Hip offset bones
 
-    first_tweak_offset = 1
-
     def get_hip_offset_base_bone(self):
         return self.bones.mch.ik_forward[0]
-
-    def rig_org_bone(self, i, org, tweak, next_tweak):
-        super().rig_org_bone(i, org, tweak, next_tweak)
-
-        if i == 0:
-            self.rig_tweak_offset_bone(i, org)
 
 
 def create_sample(obj):

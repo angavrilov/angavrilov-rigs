@@ -20,12 +20,35 @@
 
 import bpy
 
+from rigify.utils.naming import make_derived_name
+from rigify.base_rig import stage
+
 from rigify.rigs.spines import basic_spine
 from . import spine_rigs
 
 
 class Rig(spine_rigs.BaseBodyIkSpineRig, basic_spine.Rig):
-    pass
+    ####################################################
+    # BONES
+    #
+    # mch:
+    #   hip_input
+    #     Hip position before hip IK
+    #
+    ####################################################
+
+    @stage.generate_bones
+    def make_hip_input_bone(self):
+        org = self.bones.org[0]
+        mch = self.bones.mch
+        mch.hip_input = self.copy_bone(org, make_derived_name(org, 'mch', '.hip_input'), scale=0.3)
+
+    @stage.parent_bones
+    def parent_hip_input_bone(self):
+        self.set_bone_parent(self.bones.mch.hip_input, self.fk_result.hips[0])
+
+    def get_pre_hip_ik_result_bone(self):
+        return self.bones.mch.hip_input
 
 
 def create_sample(obj):

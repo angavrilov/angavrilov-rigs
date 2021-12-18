@@ -74,6 +74,17 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
 
         pbuilder.amend_child(self, self.bones.ctrl.ik, context_rig=self.rigify_parent)
 
+    def register_switch_parents(self, pbuilder):
+        parent = self.rig_parent_bone
+
+        try:
+            self.rig_parent_bone = None
+
+            super().register_switch_parents(pbuilder)
+
+        finally:
+            self.rig_parent_bone = parent
+
     def add_global_buttons(self, panel, rig_name):
         super().add_global_buttons(panel, rig_name)
 
@@ -341,6 +352,15 @@ class BaseBodyIkLegRig(BaseBodyIkLimbRig):
             self.get_bone_parent(self.bones.org.main[0]) != self.rigify_parent.bones.org[0]):
             self.raise_error('Hip IK leg must be a child of the IK spine hip bone.')
 
+    def generate_bones(self):
+        # Replace the parent ORG bone of the limb with one provided by the Hip IK system
+        parent = self.rigify_parent.get_leg_parent_bone()
+        self.set_bone_parent(self.bones.org.main[0], parent)
+
+        super().generate_bones()
+
+        assert self.rig_parent_bone == parent
+
     ####################################################
     # FK parents MCH chain
 
@@ -365,21 +385,6 @@ class BaseBodyIkArmRig(BaseBodyIkLimbRig):
 
         if not isinstance(self.rigify_parent, IkShoulderRig):
             self.raise_error('Body IK arm must be a child of the IK shoulder rig.')
-
-
-    ####################################################
-    # UI
-
-    def register_switch_parents(self, pbuilder):
-        parent = self.rig_parent_bone
-
-        try:
-            self.rig_parent_bone = None
-
-            super().register_switch_parents(pbuilder)
-
-        finally:
-            self.rig_parent_bone = parent
 
 
 #######################
