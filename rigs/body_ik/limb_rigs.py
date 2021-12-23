@@ -292,7 +292,7 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
         "Called by the parent rig to rig the body ik target bone."
 
         lens = [ self.get_bone(name).length for name in self.bones.org.main[0:2] ]
-        scale_root = driver_var_transform(self.obj, 'root', type='SCALE_AVG')
+        scale_root = driver_var_transform(self.obj, 'root', type='SCALE_AVG', space='LOCAL')
 
         bone = self.get_bone(mch)
         bone['mode'] = 0.0
