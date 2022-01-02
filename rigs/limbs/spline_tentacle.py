@@ -46,15 +46,14 @@ class Rig(SimpleChainRig):
         self.spline_name = self.obj.name + '-MCH-' + name_base + self.name_sep + 'spline' + name_suffix
         self.spline_obj = None
 
-        if self.generator.metarig.data.rigify_generate_mode == 'overwrite':
-            if self.spline_name in bpy.data.objects:
-                self.spline_obj = bpy.data.objects[self.spline_name]
+        if self.spline_name in bpy.data.objects:
+            self.spline_obj = bpy.data.objects[self.spline_name]
 
-                if not isinstance(self.spline_obj.data, bpy.types.Curve):
-                    raise MetarigError("Object '%s' already exists and is not a curve." % (self.spline_name))
+            if not isinstance(self.spline_obj.data, bpy.types.Curve):
+                raise MetarigError("Object '%s' already exists and is not a curve." % (self.spline_name))
 
-                if self.spline_obj.parent and self.spline_obj.parent != self.obj:
-                    raise MetarigError("Object '%s' already exists and is not a child of the rig." % (self.spline_name))
+            if self.spline_obj.parent and self.spline_obj.parent != self.obj:
+                raise MetarigError("Object '%s' already exists and is not a child of the rig." % (self.spline_name))
 
         # Options
         self.use_stretch = (self.params.sik_stretch_control == 'MANUAL_STRETCH')
