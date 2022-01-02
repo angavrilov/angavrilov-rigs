@@ -138,6 +138,14 @@ class Rig(BaseRig):
         con = self.make_constraint(org, 'DAMPED_TRACK', self.bones.mch.ik[1])
         self.make_driver(con, 'influence', variables=[(self.bones.mch.ik_tgt, 'influence')])
 
+    def get_body_ik_safe_parent_bone(self):
+        "Parent bone for Body IK child limbs that doesn't depend on the IK"
+        return self.bones.ctrl.master
+
+    def get_body_ik_final_parent_bone(self):
+        "Parent bone for Body IK child limbs that does depend on the IK"
+        return self.bones.org
+
     ####################################################
     # IK MCH chain
 

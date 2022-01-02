@@ -250,7 +250,12 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
     def get_hip_offset_base_bone(self):
         return self.get_pre_hip_ik_result_bone()
 
-    def get_leg_parent_bone(self):
+    def get_body_ik_safe_parent_bone(self):
+        "Parent bone for Body IK child limbs that doesn't depend on the IK"
+        return self.get_pre_hip_ik_result_bone()
+
+    def get_body_ik_final_parent_bone(self):
+        "Parent bone for Body IK child limbs that does depend on the IK"
         return self.bones.mch.hip_output
 
     ####################################################

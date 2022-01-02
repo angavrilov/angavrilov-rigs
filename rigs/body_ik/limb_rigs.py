@@ -67,6 +67,26 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
     ####################################################
 
     ####################################################
+    # Parent link
+
+    def generate_bones(self):
+        # Replace the parent ORG bone of the limb with one provided by the Hip IK system
+        parent = self.rigify_parent.get_body_ik_final_parent_bone()
+        self.set_bone_parent(self.bones.org.main[0], parent)
+
+        super().generate_bones()
+
+        assert self.rig_parent_bone == parent
+
+    @stage.parent_bones
+    def parent_master_control(self):
+        super().parent_master_control()
+
+        # TODO: can't do this because of spurious dependency cycles
+        #parent = self.rigify_parent.get_body_ik_safe_parent_bone()
+        self.set_bone_parent(self.bones.ctrl.master, 'root', inherit_scale='NONE')
+
+    ####################################################
     # UI
 
     def build_ik_parent_switch(self, pbuilder):
@@ -190,6 +210,10 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
     def configure_middle_ik_control_chain(self):
         IK_MID_LAYERS.assign(self.params, self.obj, self.get_all_mid_ik_controls())
 
+    @stage.rig_bones
+    def rig_middle_ik_control_chain(self):
+        self.rig_ik_control_scale(self.bones.ctrl.ik_mid[0])
+
     @stage.generate_widgets
     def make_middle_ik_control_widgets(self):
         ctrls = self.bones.ctrl.ik_mid
@@ -292,7 +316,9 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
         "Called by the parent rig to rig the body ik target bone."
 
         lens = [ self.get_bone(name).length for name in self.bones.org.main[0:2] ]
+
         scale_root = driver_var_transform(self.obj, 'root', type='SCALE_AVG', space='LOCAL')
+        scale_master = driver_var_transform(self.obj, self.bones.ctrl.master, type='SCALE_AVG', space='LOCAL')
 
         bone = self.get_bone(mch)
         bone['mode'] = 0.0
@@ -307,11 +333,12 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
         )
         self.make_driver(
             mch, '["length"]',
-            expression='rs*(t*{}*(1-m) + s*{}*m)'.format(lens[0], sum(lens)),
+            expression=f'rs*ms*lerp(t*{lens[0]},s*{sum(lens)},m)',
             variables={
                 's': (self.bones.ctrl.ik_base, '.scale.y'),
                 't': (self.prop_bone, 'ik_mid_stretch'),
-                'rs': scale_root, 'm': (mch, 'mode'),
+                'rs': scale_root, 'ms': scale_master,
+                'm': (mch, 'mode'),
             }
         )
 
@@ -351,15 +378,6 @@ class BaseBodyIkLegRig(BaseBodyIkLimbRig):
         if (not isinstance(self.rigify_parent, BaseBodyIkSpineRig) or
             self.get_bone_parent(self.bones.org.main[0]) != self.rigify_parent.bones.org[0]):
             self.raise_error('Hip IK leg must be a child of the IK spine hip bone.')
-
-    def generate_bones(self):
-        # Replace the parent ORG bone of the limb with one provided by the Hip IK system
-        parent = self.rigify_parent.get_leg_parent_bone()
-        self.set_bone_parent(self.bones.org.main[0], parent)
-
-        super().generate_bones()
-
-        assert self.rig_parent_bone == parent
 
     ####################################################
     # FK parents MCH chain
@@ -428,7 +446,8 @@ class RigifyLimbMidIk2FkBase:
             )
 
         set_chain_transforms_from_matrices(
-            context, obj, self.ik_bone_list, matrices[1:], keyflags=self.keyflags
+            context, obj, self.ik_bone_list, matrices[1:], keyflags=self.keyflags,
+            undo_copy_scale=True,
         )
 
 class POSE_OT_rigify_limb_mid_ik2fk(RigifyLimbMidIk2FkBase, RigifySingleUpdateMixin, bpy.types.Operator):
