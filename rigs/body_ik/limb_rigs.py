@@ -130,10 +130,11 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
 
     def add_mid_ik_only_buttons(self, panel, rig_name):
         ctrl = self.bones.ctrl
+        cut = self.middle_ik_control_cutoff
 
         add_generic_snap_fk_to_ik(
             panel,
-            fk_bones=ctrl.fk[0:3],
+            fk_bones=ctrl.fk[0:cut],
             ik_bones=self.bones.mch.ik_mid,
             ik_ctrl_bones=ctrl.ik_mid,
             label='FK->{} IK'.format(self.mid_control_name.title()),
@@ -143,7 +144,7 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
         add_limb_snap_mid_ik_to_fk(
             panel,
             master=ctrl.master,
-            fk_bones=ctrl.fk[0:3],
+            fk_bones=ctrl.fk[0:cut],
             ik_ctrl_bones=ctrl.ik_mid,
             ik_extra_ctrls=self.get_extra_mid_ik_controls(),
             label='{} IK->FK'.format(self.mid_control_name.title()),
@@ -163,6 +164,8 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
     ####################################################
     # Knee IK control
 
+    middle_ik_control_cutoff = 3
+
     def get_all_mid_ik_controls(self):
         return self.bones.ctrl.ik_mid + self.get_extra_mid_ik_controls()
 
@@ -180,7 +183,8 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
 
     @stage.generate_bones
     def make_middle_ik_control_chain(self):
-        self.bones.ctrl.ik_mid = map_list(self.make_middle_ik_control_bone, count(0), self.bones.org.main[1:3])
+        cut = self.middle_ik_control_cutoff
+        self.bones.ctrl.ik_mid = map_list(self.make_middle_ik_control_bone, count(0), self.bones.org.main[1:cut])
 
         ik_name = self.bones.ctrl.ik_mid[0]
         self.component_mid_ik_pivot = self.build_middle_ik_pivot(ik_name, scale=0.4)
@@ -204,7 +208,9 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
 
     @stage.parent_bones
     def parent_middle_ik_control_chain(self):
-        self.set_bone_parent(self.bones.ctrl.ik_mid[1], self.get_mid_ik_control_output(), use_connect=True)
+        ik_mid = self.bones.ctrl.ik_mid
+        self.set_bone_parent(ik_mid[1], self.get_mid_ik_control_output(), use_connect=True)
+        self.parent_bone_chain(ik_mid[1:], use_connect=False)
 
     @stage.configure_bones
     def configure_middle_ik_control_chain(self):
@@ -235,7 +241,8 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
     @stage.generate_bones
     def make_middle_ik_mch_chain(self):
         orgs = self.bones.org.main
-        self.bones.mch.ik_mid = map_list(self.make_middle_ik_mch_bone, count(0), orgs[0:3])
+        cut = self.middle_ik_control_cutoff
+        self.bones.mch.ik_mid = map_list(self.make_middle_ik_mch_bone, count(0), orgs[0:cut])
         self.bones.mch.ik_mid_twist = self.make_mid_twist_mch_bone(orgs)
 
     def make_middle_ik_mch_bone(self, i, org):
@@ -260,7 +267,8 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
         else:
             self.set_bone_parent(mch.ik_mid[0], mch.follow)
 
-        self.parent_bone_chain(mch.ik_mid, use_connect=True)
+        self.parent_bone_chain(mch.ik_mid[0:3], use_connect=True)
+        self.parent_bone_chain(mch.ik_mid[2:], use_connect=False)
 
     @stage.rig_bones
     def rig_middle_ik_mch_chain(self):
@@ -292,6 +300,9 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
         self.make_constraint(mch.ik_mid[1], 'COPY_SCALE', mid_ctrl)
 
         self.make_constraint(mch.ik_mid[2], 'COPY_TRANSFORMS', ctrl.ik_mid[1])
+
+        for mmch, mctrl in zip(mch.ik_mid[3:], ctrl.ik_mid[2:]):
+            self.make_constraint(mmch, 'COPY_TRANSFORMS', mctrl, space='LOCAL')
 
     ####################################################
     # Knee IK output
@@ -375,6 +386,9 @@ class BaseBodyIkLegRig(BaseBodyIkLimbRig):
 
         super().initialize()
 
+        if self.use_ik_toe:
+            self.middle_ik_control_cutoff = 4
+
         if (not isinstance(self.rigify_parent, BaseBodyIkSpineRig) or
             self.get_bone_parent(self.bones.org.main[0]) != self.rigify_parent.bones.org[0]):
             self.raise_error('Hip IK leg must be a child of the IK spine hip bone.')
@@ -385,7 +399,7 @@ class BaseBodyIkLegRig(BaseBodyIkLimbRig):
     def rig_fk_parent_bone(self, i, parent_mch, org):
         super().rig_fk_parent_bone(i, parent_mch, org)
 
-        if i == 3:
+        if i == 3 and not self.use_ik_toe:
             self.make_driver(
                 self.get_bone(parent_mch).constraints[0], 'influence', type='MAX',
                 variables=[(self.prop_bone, 'IK_FK'), (self.prop_bone, 'IK_MID')],

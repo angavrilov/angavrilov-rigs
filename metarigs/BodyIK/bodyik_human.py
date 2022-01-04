@@ -437,6 +437,10 @@ def create(obj):
         pbone.rigify_parameters.ik_mid_layers_extra = True
     except AttributeError:
         pass
+    try:
+        pbone.rigify_parameters.extra_ik_toe = True
+    except AttributeError:
+        pass
     pbone = obj.pose.bones[bones['thigh.R']]
     pbone.rigify_type = 'body_ik.leg'
     pbone.lock_location = (False, False, False)
@@ -455,6 +459,10 @@ def create(obj):
         pass
     try:
         pbone.rigify_parameters.ik_mid_layers_extra = True
+    except AttributeError:
+        pass
+    try:
+        pbone.rigify_parameters.extra_ik_toe = True
     except AttributeError:
         pass
     try:
