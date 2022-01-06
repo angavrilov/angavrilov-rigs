@@ -199,6 +199,7 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
     def build_middle_ik_control_parent(self, ctrl):
         SwitchParentBuilder(self.generator).build_child(
             self, ctrl, context_rig=self.rigify_parent, select_parent='root',
+            inherit_scale='NONE', no_fix_scale=True,
             prop_bone=lambda:self.bones.ctrl.master,
             prop_id='IK_{}_parent'.format(self.mid_control_name),
             prop_name='IK {} Parent'.format(self.mid_control_name.title()),
@@ -211,7 +212,7 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
     @stage.parent_bones
     def parent_middle_ik_control_chain(self):
         ik_mid = self.bones.ctrl.ik_mid
-        self.set_bone_parent(ik_mid[1], self.get_mid_ik_control_output(), use_connect=True)
+        self.set_bone_parent(ik_mid[1], self.get_mid_ik_control_output(), use_connect=True, inherit_scale='NONE')
         self.parent_bone_chain(ik_mid[1:], use_connect=False)
 
     @stage.configure_bones
@@ -220,7 +221,18 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
 
     @stage.rig_bones
     def rig_middle_ik_control_chain(self):
-        self.rig_ik_control_scale(self.bones.ctrl.ik_mid[0])
+        self.rig_middle_ik_control_scale(self.bones.ctrl.ik_mid[0])
+        self.rig_middle_ik_control_scale(self.bones.ctrl.ik_mid[1])
+
+    def rig_middle_ik_control_scale(self, ctrl):
+        self.make_constraint(
+            ctrl, 'COPY_SCALE', 'root',
+            use_make_uniform=True, use_offset=True,
+        )
+        self.make_constraint(
+            ctrl, 'COPY_SCALE', self.bones.ctrl.master,
+            use_make_uniform=True, use_offset=True, space='LOCAL',
+        )
 
     @stage.generate_widgets
     def make_middle_ik_control_widgets(self):
