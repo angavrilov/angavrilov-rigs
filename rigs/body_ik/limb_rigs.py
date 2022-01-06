@@ -70,6 +70,8 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
     # Parent link
 
     def generate_bones(self):
+        self.parent_org_bone = self.get_bone_parent(self.bones.org.main[0])
+
         # Replace the parent ORG bone of the limb with one provided by the Hip IK system
         parent = self.rigify_parent.get_body_ik_final_parent_bone()
         self.set_bone_parent(self.bones.org.main[0], parent)
@@ -98,7 +100,7 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
         parent = self.rig_parent_bone
 
         try:
-            self.rig_parent_bone = None
+            self.rig_parent_bone = self.parent_org_bone
 
             super().register_switch_parents(pbuilder)
 
