@@ -33,6 +33,16 @@ centers of mass are computed from a helper cage mesh.
 
 ## Limb Rigs
 
+### Extended Leg (`limbs.leg_plus`)
+
+Adds experimental extensions to leg.
+
+* **Toe Tip Roll** generates a slider to apply the forward roll to the toe.
+
+**Runtime Options:**
+
+* **Roll Forward On Toe** makes the toe roll forward on its tip.
+
 ### Spline IK Tentacle (`limbs.spline_tentacle`)
 
 This rig type implements a tentacle with an IK system using the Spline IK constraint.
@@ -126,6 +136,8 @@ pose using FK, and then switched to the IK controls using snapping. Knee IK
 is also not stable for mathematical reasons when both legs are enabled and
 the shins are parallel (basically there are infinitely many solutions and
 it becomes confused).
+
+Note: the leg is based on `limbs.leg_plus` above.
 
 **Runtime Options:**
 

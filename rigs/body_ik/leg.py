@@ -23,8 +23,9 @@ import bpy
 from rigify.rigs.limbs import leg
 from . import limb_rigs
 
+from ..limbs import leg_plus
 
-class Rig(limb_rigs.BaseBodyIkLegRig, leg.Rig):
+class Rig(limb_rigs.BaseBodyIkLegRig, leg_plus.Rig):
     pass
 
 
