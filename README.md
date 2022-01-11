@@ -43,6 +43,23 @@ Adds experimental extensions to leg.
 
 * **Roll Forward On Toe** makes the toe roll forward on its tip.
 
+### Extra Leg Heel (`limbs.extra_heel`)
+
+Used as a child of a leg rig, this allows adding an alternative rest pose for
+the foot and toe, with an appropriate foot roll mechanism. This can be useful
+e.g. for providing a switch between low and high heel shoes in the same character.
+The bone structure exactly matches that of leg, without anything above the foot.
+
+The switch is controlled by a mandatory 'enabled' custom property that must be
+placed on the base metarig bone of this component and rigged with a driver
+(e.g. from a property placed on a custom 'root' bone). If multiple instances
+of this rig are used for the same leg, it is up to the user to ensure that only
+one of them can be 'enabled' at the same time.
+
+The rig generates deform bones for convenience of skinning of objects based
+on the alternative rest pose. These bones exactly overlap the positions of the
+original leg deform bones during animation.
+
 ### Spline IK Tentacle (`limbs.spline_tentacle`)
 
 This rig type implements a tentacle with an IK system using the Spline IK constraint.
