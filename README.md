@@ -42,6 +42,11 @@ Adds experimental extensions to leg.
 **Runtime Options:**
 
 * **Roll Forward On Toe** makes the toe roll forward on its tip.
+* **IK->FK With Roll** snap button tries to snap IK to FK, using the heel roll
+  control to preserve the current IK control orientation as much as possible.
+  The operator allows selecting which roll channels to use via redo panel.
+  Note: Currently, computing the 'roll on toe' slider value doesn't work well
+  if both Roll and Yaw channels are used and nonzero.
 
 ### Extra Leg Heel (`limbs.extra_heel`)
 
