@@ -221,6 +221,9 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
 
     @stage.configure_bones
     def configure_middle_ik_control_chain(self):
+        for ctrl, org in zip(self.bones.ctrl.ik_mid[1:], self.bones.org.main[2:]):
+            self.copy_bone_properties(org, ctrl, props=False, widget=False)
+
         IK_MID_LAYERS.assign(self.params, self.obj, self.get_all_mid_ik_controls())
 
     @stage.rig_bones
