@@ -65,6 +65,8 @@ The rig generates deform bones for convenience of skinning of objects based
 on the alternative rest pose. These bones exactly overlap the positions of the
 original leg deform bones during animation.
 
+Example file: [demo-extra-heel.blend](https://www.dropbox.com/s/ll6ckj24yav6eyn/demo-extra-heel.blend?dl=0) demonstrates using this rig to implement a switch between low and high heel shoes via a property on the root bone.
+
 ### Spline IK Tentacle (`limbs.spline_tentacle`)
 
 This rig type implements a tentacle with an IK system using the Spline IK constraint.
@@ -215,7 +217,7 @@ on the main mesh.
 * **Only Use Shape Anchor Location** tells the rig to only use the translation
   of the shape anchor object for a simpler mechanism.
 
-This [blend file](https://www.dropbox.com/s/k0n0vjigd19c3ns/demo-breast-jiggle.blend?dl=1)
+Example file: [demo-breast-jiggle.blend](https://www.dropbox.com/s/k0n0vjigd19c3ns/demo-breast-jiggle.blend?dl=1)
 with included detailed text instructions demonstrates applying this in a breast rig
 for a character with a clothing switch option (uses only a torso to reduce file size).
 
@@ -223,8 +225,6 @@ for a character with a clothing switch option (uses only a torso to reduce file 
 
 These rigs implement a flexible system for rigging skin using multiple interacting
 B-Bone chains. This is developed as a replacement for the Rigify face rig.
-
-These rigs currently require the latest nightly build of Blender 3.0
 
 The core part of the skin system has been moved to Rigify and is documented
 in the [Blender Manual](https://docs.blender.org/manual/en/dev/addons/rigging/rigify/rig_types/skin.html)
@@ -236,8 +236,42 @@ for scripters.
 This rig applies the math behind the Elastic Deform sculpt brush to
 its child chain control positions when its own control is scaled.
 
+This should produce somewhat realistic stretching, but at high scale
+factors scaling becomes uneven and eventually forms folds as some
+inner controls overtake outer ones.
+
+Example file: [demo-elastic-stretch.blend](https://www.dropbox.com/s/a1xjwqfd7zkxoc1/demo-elastic-stretch.blend?dl=0) demonstrates multiple concentric loops controlled via this rig.
+
 * **Generate Control** specifies whether to generate a visible control,
   or use the transformation of the ORG bone as a part of more complex
   ad-hoc rig setup.
 * **Exact Scale Radius** specifies the radius of the brush via the
   distance from center at which control bone scale is applied exactly.
+
+### Concentric Stretch Transform (`skin.transform.concentric_stretch`)
+
+As opposed to the elastic transformation, this rig operates specifically
+on concentric loops, scaling them in such a way that stretching and
+compression is evenly fading out from center, and inner loops don't
+overtake outer ones.
+
+The loops must be formed by L/R symmetry chains, and are expected to
+be (nearly) elliptical and centered on the control bone. It is acceptable
+to use spliced ellipses with different extents in the local Z direction,
+but the X direction must be symmetrical.
+
+Example file: [demo-concentric-stretch.blend](https://www.dropbox.com/s/hdof6t7vm3nx1ds/demo-concentric-stretch.blend?dl=0) demonstrates multiple concentric loops controlled via this rig.
+
+* **Generate Control** specifies whether to generate a visible control,
+  or use the transformation of the ORG bone as a part of more complex
+  ad-hoc rig setup.
+* **Squash Limit** specifies how small each gap between loops can be
+  squashed in the X and Z direction correspondingly.
+* **Layer Fade** specifies the per loop falloff of the influence of
+  translating the control.
+* **Circularize Inner Shape** specifies that instead of simply controlling
+  the innermost loop directly, the rig should delay the onset of upscale
+  on its larger dimension until it becomes a circle.
+* **Rhombus Correction** applies correction to widen loops that have
+  rhombic rather than elliptical shape into ellipses, as their inner
+  loops are scaled up and fill more space.
