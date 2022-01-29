@@ -65,7 +65,7 @@ The rig generates deform bones for convenience of skinning of objects based
 on the alternative rest pose. These bones exactly overlap the positions of the
 original leg deform bones during animation.
 
-Example file: [demo-extra-heel.blend](https://www.dropbox.com/s/ll6ckj24yav6eyn/demo-extra-heel.blend?dl=0) demonstrates using this rig to implement a switch between low and high heel shoes via a property on the root bone.
+**Example file:** [demo-extra-heel.blend](https://www.dropbox.com/s/ll6ckj24yav6eyn/demo-extra-heel.blend?dl=0) demonstrates using this rig to implement a switch between low and high heel shoes via a property on the root bone.
 
 ### Spline IK Tentacle (`limbs.spline_tentacle`)
 
@@ -123,6 +123,8 @@ In some rare cases, like crawling, it may be desirable to have IK controls that 
 the location of elbows/knees by adjusting the spine and shoulders. This group of
 rigs contains extended versions of spine, shoulder, arm and leg rigs that provide
 this functionality. Legs must be used in pair with a spine, and arms with shoulders.
+
+**Example file:** https://blendswap.com/blend/29534 demonstrates Body IK and a number of other features via two fully usable sample characters.
 
 ### Spines
 
@@ -217,7 +219,7 @@ on the main mesh.
 * **Only Use Shape Anchor Location** tells the rig to only use the translation
   of the shape anchor object for a simpler mechanism.
 
-Example file: [demo-breast-jiggle.blend](https://www.dropbox.com/s/k0n0vjigd19c3ns/demo-breast-jiggle.blend?dl=1)
+**Example file:** [demo-breast-jiggle.blend](https://www.dropbox.com/s/k0n0vjigd19c3ns/demo-breast-jiggle.blend?dl=1)
 with included detailed text instructions demonstrates applying this in a breast rig
 for a character with a clothing switch option (uses only a torso to reduce file size).
 
@@ -240,7 +242,7 @@ This should produce somewhat realistic stretching, but at high scale
 factors scaling becomes uneven and eventually forms folds as some
 inner controls overtake outer ones.
 
-Example file: [demo-elastic-stretch.blend](https://www.dropbox.com/s/a1xjwqfd7zkxoc1/demo-elastic-stretch.blend?dl=0) demonstrates multiple concentric loops controlled via this rig.
+**Example file:** [demo-elastic-stretch.blend](https://www.dropbox.com/s/a1xjwqfd7zkxoc1/demo-elastic-stretch.blend?dl=0) demonstrates multiple concentric loops controlled via this rig.
 
 * **Generate Control** specifies whether to generate a visible control,
   or use the transformation of the ORG bone as a part of more complex
@@ -260,7 +262,7 @@ be (nearly) elliptical and centered on the control bone. It is acceptable
 to use spliced ellipses with different extents in the local Z direction,
 but the X direction must be symmetrical.
 
-Example file: [demo-concentric-stretch.blend](https://www.dropbox.com/s/hdof6t7vm3nx1ds/demo-concentric-stretch.blend?dl=0) demonstrates multiple concentric loops controlled via this rig.
+**Example file:** [demo-concentric-stretch.blend](https://www.dropbox.com/s/hdof6t7vm3nx1ds/demo-concentric-stretch.blend?dl=0) demonstrates multiple concentric loops controlled via this rig.
 
 * **Generate Control** specifies whether to generate a visible control,
   or use the transformation of the ORG bone as a part of more complex
