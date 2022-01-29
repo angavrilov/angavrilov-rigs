@@ -38,6 +38,8 @@ centers of mass are computed from a helper cage mesh.
 Adds experimental extensions to leg.
 
 * **Toe Tip Roll** generates a slider to apply the forward roll to the toe.
+  Roll is applied around a point produced by projecting the tail of the toe
+  bone on the ground plane that has the rock and roll backward pivots.
 
 **Runtime Options:**
 
@@ -45,8 +47,6 @@ Adds experimental extensions to leg.
 * **IK->FK With Roll** snap button tries to snap IK to FK, using the heel roll
   control to preserve the current IK control orientation as much as possible.
   The operator allows selecting which roll channels to use via redo panel.
-  Note: Currently, computing the 'roll on toe' slider value doesn't work well
-  if both Roll and Yaw channels are used and nonzero.
 
 ### Extra Leg Heel (`limbs.extra_heel`)
 

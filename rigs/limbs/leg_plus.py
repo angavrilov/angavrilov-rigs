@@ -11,6 +11,7 @@ from mathutils import Vector
 from rigify.utils.animation import add_fk_ik_snap_buttons
 from rigify.utils.naming import make_derived_name
 from rigify.utils.bones import put_bone
+from rigify.utils.mechanism import driver_var_transform
 from rigify.utils.misc import map_list, map_apply
 
 from rigify.base_rig import stage
@@ -71,7 +72,7 @@ class Rig(leg.Rig):
 
             put_bone(self.obj, roll3, toe_pos, matrix=self.roll_matrix)
 
-            return [ rock2, rock1, roll2, roll3, roll1, result ]
+            return [rock2, rock1, roll2, roll3, roll1, result]
 
         return chain
 
@@ -79,15 +80,35 @@ class Rig(leg.Rig):
         if self.use_toe_roll:
             rock2, rock1, roll2, roll3, roll1, result = chain
 
-            con = self.make_constraint(roll3, 'COPY_ROTATION', heel, space='LOCAL', use_xyz=(True, False, True))
-            self.make_driver(con, 'influence', variables=[(heel, 'Toe_Roll')])
+            bone = self.get_bone(roll3)
+            bone.rotation_mode = self.heel_euler_order
 
-            if self.main_axis == 'x':
-                self.make_constraint(roll3, 'LIMIT_ROTATION', max_x=DEG_360, space='LOCAL')
-            else:
-                self.make_constraint(roll3, 'LIMIT_ROTATION', max_z=DEG_360, space='LOCAL')
+            # Interpolate rotation in Euler space via drivers to simplify Snap With Roll
+            self.make_driver(
+                bone, 'rotation_euler', index=0,
+                expression='max(0,x*i)' if self.main_axis == 'x' else 'x*i',
+                variables={
+                    'x': driver_var_transform(
+                        self.obj, heel, type='ROT_X', space='LOCAL',
+                        rotation_mode=self.heel_euler_order,
+                    ),
+                    'i': (heel, 'Toe_Roll'),
+                }
+            )
 
-            chain = [ rock2, rock1, roll2, roll1, result ]
+            self.make_driver(
+                bone, 'rotation_euler', index=2,
+                expression='max(0,z*i)' if self.main_axis == 'z' else 'z*i',
+                variables={
+                    'z': driver_var_transform(
+                        self.obj, heel, type='ROT_Z', space='LOCAL',
+                        rotation_mode=self.heel_euler_order,
+                    ),
+                    'i': (heel, 'Toe_Roll'),
+                }
+            )
+
+            chain = [rock2, rock1, roll2, roll1, result]
 
         super().rig_roll_mch_bones(chain, heel, org_heel)
 
@@ -121,7 +142,8 @@ def create_sample(obj):
 # Leg IK to FK operator ##
 ##########################
 
-SCRIPT_REGISTER_OP_SNAP_IK_FK = ['POSE_OT_rigify_leg_roll_ik2fk', 'POSE_OT_rigify_leg_roll_ik2fk_bake']
+SCRIPT_REGISTER_OP_SNAP_IK_FK = [
+    'POSE_OT_rigify_leg_roll_ik2fk', 'POSE_OT_rigify_leg_roll_ik2fk_bake']
 
 SCRIPT_UTILITIES_OP_SNAP_IK_FK = limb_rigs.SCRIPT_UTILITIES_OP_SNAP_IK_FK + ['''
 #######################
@@ -190,7 +212,7 @@ class RigifyLegRollIk2FkBase(RigifyLimbIk2FkBase):
                 heel_rot = list(heel_bone.rotation_euler)
                 heel_rot[roll] = max(0.0, heel_rot[roll])
 
-                # TODO: this doesn't actually work well with multiple angles...
+                # This relies on toe roll interpolation being done in Euler space
                 ratios = [
                     toe_rot[i] / heel_rot[i] for i in (roll, turn)
                     if use_roll[i] and heel_rot[i] * toe_rot[i] > 0
@@ -229,6 +251,7 @@ class POSE_OT_rigify_leg_roll_ik2fk_bake(RigifyLegRollIk2FkBase, RigifyBakeKeyfr
         self.bake_add_bone_frames(self.ctrl_bone_list[-1:], TRANSFORM_PROPS_ROTATION)
         return self.bake_get_all_bone_curves(self.ctrl_bone_list + self.extra_ctrl_list, TRANSFORM_PROPS_ALL)
 ''']
+
 
 def add_leg_snap_ik_to_fk(panel, *, master=None, fk_bones=[], ik_bones=[], tail_bones=[], ik_ctrl_bones=[], ik_extra_ctrls=[], heel_control, rig_name=''):
     panel.use_bake_settings()
