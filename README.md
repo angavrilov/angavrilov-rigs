@@ -238,9 +238,9 @@ for scripters.
 This rig applies the math behind the Elastic Deform sculpt brush to
 its child chain control positions when its own control is scaled.
 
-This should produce somewhat realistic stretching, but at high scale
-factors scaling becomes uneven and eventually forms folds as some
-inner controls overtake outer ones.
+This places no restriction on child chains, and should produce somewhat
+realistic stretching, but at high scale factors scaling becomes uneven
+and eventually forms folds as some inner controls overtake outer ones.
 
 **Example file:** [demo-elastic-stretch.blend](https://www.dropbox.com/s/a1xjwqfd7zkxoc1/demo-elastic-stretch.blend?dl=0) demonstrates multiple concentric loops controlled via this rig.
 

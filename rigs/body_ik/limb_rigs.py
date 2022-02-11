@@ -212,6 +212,10 @@ class BaseBodyIkLimbRig(limb_rigs.BaseLimbRig):
     @stage.parent_bones
     def parent_middle_ik_control_chain(self):
         ik_mid = self.bones.ctrl.ik_mid
+
+        bone = self.get_bone(ik_mid[0])
+        bone.use_local_location = getattr(self.params, 'ik_local_location', True)
+
         if self.use_middle_ik_parent_mch:
             for ctrl, parent in zip(ik_mid[1:], self.bones.mch.ik_mid_parents):
                 self.set_bone_parent(ctrl, parent)
