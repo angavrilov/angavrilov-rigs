@@ -301,7 +301,7 @@ def split_vgroup_components(rig: Rig, obj: bpy.types.Object) -> tuple[BMesh, dic
     vg_verts = collections.defaultdict(list)
 
     for vert in bm.verts:
-        vgs = [vg_id for vg_id, weight in vert[deform].items() if weight > 0]
+        vgs = [vg_id for vg_id, weight in vert[deform].items() if weight > 0 and vg_id in groups]
 
         if len(vgs) > 1:
             names = ', '.join(groups.get(i, str(i)) for i in vgs)

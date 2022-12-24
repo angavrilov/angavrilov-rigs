@@ -31,6 +31,12 @@ centers of mass are computed from a helper cage mesh.
 * **Add Sample Cage** creates a new valid cage mesh based on selected bones beside
   the active one. The vertex groups are mapped to ORG bones.
 
+This MakeHuman For Blender 2 asset pack file defines a 'clothing' item that
+implements a center of mass helper cage for the standard MPFB2 Rigify rig. You should load
+this asset without weight interpolation, or delete all non-ORG vertex groups after loading;
+otherwise generation will fail with a 'vertex assigned to multiple groups' error:
+[xcage_center_of_mass.zip](https://www.dropbox.com/s/xhidjjqu30u4jvh/xcage_center_of_mass.zip?dl=0)
+
 ## Limb Rigs
 
 ### Extended Leg (`limbs.leg_plus`)
