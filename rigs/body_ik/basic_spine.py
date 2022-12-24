@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,11 +14,9 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
-
-import bpy
 
 from rigify.utils.naming import make_derived_name
 from rigify.base_rig import stage
@@ -28,14 +26,15 @@ from . import spine_rigs
 
 
 class Rig(spine_rigs.BaseBodyIkSpineRig, basic_spine.Rig):
-    ####################################################
-    # BONES
-    #
-    # mch:
-    #   hip_input
-    #     Hip position before hip IK
-    #
-    ####################################################
+    class MchBones(spine_rigs.BaseBodyIkSpineRig.MchBones, basic_spine.Rig.MchBones):
+        hip_input: str                 # Pre hip IK position
+
+    bones: basic_spine.Rig.ToplevelBones[
+        list[str],
+        'Rig.CtrlBones',
+        'Rig.MchBones',
+        list[str]
+    ]
 
     @stage.generate_bones
     def make_hip_input_bone(self):

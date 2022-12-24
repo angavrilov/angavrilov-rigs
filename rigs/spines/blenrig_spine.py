@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,19 +14,19 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
 
 import bpy
 import math
 
-from itertools import count, repeat
-from mathutils import Matrix
+from itertools import count
+from mathutils import Matrix, Vector
 
 from rigify.utils.layers import ControlLayersOption
-from rigify.utils.naming import strip_org, make_mechanism_name, make_derived_name
-from rigify.utils.bones import BoneDict, put_bone, align_bone_to_axis, align_bone_orientation, set_bone_widget_transform, flip_bone
+from rigify.utils.naming import make_derived_name
+from rigify.utils.bones import put_bone, align_bone_to_axis, set_bone_widget_transform, flip_bone
 from rigify.utils.widgets import adjust_widget_transform_mesh
 from rigify.utils.widgets_basic import create_circle_widget
 from rigify.utils.misc import map_list
@@ -44,6 +44,9 @@ class Rig(BaseSpineRig):
 
     min_chain_length = 4
 
+    chain_length: int
+    use_hips_pivot: bool
+
     def initialize(self):
         super().initialize()
 
@@ -53,25 +56,23 @@ class Rig(BaseSpineRig):
 
     ####################################################
     # BONES
-    #
-    # org[]:
-    #   ORG bones
-    # ctrl:
-    #   master, hips, chest:
-    #     Main controls.
-    #   ik_tweak[]:
-    #     IK tweak controls
-    #   tweak[]:
-    #     Tweak control chain.
-    # mch:
-    #   ik_back[]
-    #     Inverted tracking chain
-    #   ik_forward[]
-    #     Forward tracking chain
-    # deform[]:
-    #   DEF bones
-    #
-    ####################################################
+
+    class CtrlBones(BaseSpineRig.CtrlBones):
+        hips: str                      # Main hip control.
+        chest: str                     # Main chest control
+        ik_tweak: list[str]            # IK tweak controls
+        tweak: list[str]               # Tweak control chain.
+
+    class MchBones(BaseSpineRig.MchBones):
+        ik_back: list[str]             # Inverted tracking chain
+        ik_forward: list[str]          # Forward tracking chain
+
+    bones: BaseSpineRig.ToplevelBones[
+        list[str],
+        'Rig.CtrlBones',
+        'Rig.MchBones',
+        list[str]
+    ]
 
     ####################################################
     # Master control bone
@@ -85,7 +86,9 @@ class Rig(BaseSpineRig):
         super().configure_master_control()
 
         master = self.bones.ctrl.master
-        self.make_property(master, 'fk_hips', 0.0, description='Hip bone rotation is defined purely by the main hips control')
+        self.make_property(
+            master, 'fk_hips', 0.0,
+            description='Hip bone rotation is defined purely by the main hips control')
         self.make_property(master, 'fk_chest', 0.0, description='Use FK controls for the chest')
 
         panel = self.script.panel_with_selected_check(self, self.bones.ctrl.flatten())
@@ -95,11 +98,13 @@ class Rig(BaseSpineRig):
     ####################################################
     # Main control bones
 
-    def get_end_control_pos(self, orgs, pos):
+    def get_end_control_pos(self, orgs: list[str], pos: float) -> Vector:
         pos *= len(orgs)
         idx = int(pos)
         base_bone = self.get_bone(orgs[idx])
         return base_bone.head + base_bone.vector * (pos - idx)
+
+    component_hips_pivot: CustomPivotControl | None
 
     @stage.generate_bones
     def make_end_control_bones(self):
@@ -112,19 +117,19 @@ class Rig(BaseSpineRig):
             hips, position=self.get_end_control_pos(orgs, 1.5 / 4)
         )
 
-    def make_hips_control_bone(self, orgs, name):
+    def make_hips_control_bone(self, orgs: list[str], name: str):
         name = self.copy_bone(orgs[0], name)
         put_bone(self.obj, name, self.get_bone(orgs[0]).tail)
         align_bone_to_axis(self.obj, name, 'z', length=self.length / 4)
         return name
 
-    def make_chest_control_bone(self, orgs, name):
+    def make_chest_control_bone(self, orgs: list[str], name: str):
         name = self.copy_bone(orgs[-1], name)
         put_bone(self.obj, name, self.get_end_control_pos(orgs, 2.5 / 4))
         align_bone_to_axis(self.obj, name, 'z', length=self.length / 3)
         return name
 
-    def build_hips_pivot(self, master_name, **args):
+    def build_hips_pivot(self, master_name: str, **args):
         if self.use_hips_pivot:
             return CustomPivotControl(
                 self, 'hips_pivot', master_name, parent=master_name, **args
@@ -149,7 +154,7 @@ class Rig(BaseSpineRig):
         self.configure_end_control_bone(0, self.bones.ctrl.hips, orgs[0])
         self.configure_end_control_bone(1, self.bones.ctrl.chest, orgs[-1])
 
-    def configure_end_control_bone(self, i, ctrl, org):
+    def configure_end_control_bone(self, _i: int, ctrl: str, org: str):
         bone = self.get_bone(ctrl)
         bone.lock_scale = True, True, True
         bone.rotation_mode = self.get_bone(org).rotation_mode
@@ -161,7 +166,7 @@ class Rig(BaseSpineRig):
         self.make_end_control_widget(ctrl.hips, ik_forward[0])
         self.make_end_control_widget(ctrl.chest, ik_forward[-2])
 
-    def make_end_control_widget(self, ctrl, wgt_mch):
+    def make_end_control_widget(self, ctrl: str, wgt_mch: str):
         shape_bone = self.get_bone(wgt_mch)
         is_horizontal = abs(shape_bone.z_axis.normalized().y) < 0.7
 
@@ -178,8 +183,8 @@ class Rig(BaseSpineRig):
         if is_horizontal:
             # Tilt the widget toward the ground for horizontal (animal) spines
             angle = math.copysign(28, shape_bone.x_axis.x)
-            rotmat = Matrix.Rotation(math.radians(angle), 4, 'X')
-            adjust_widget_transform_mesh(obj, rotmat, local=True)
+            rot_mat = Matrix.Rotation(math.radians(angle), 4, 'X')
+            adjust_widget_transform_mesh(obj, rot_mat, local=True)
 
     ####################################################
     # IK tweak controls
@@ -193,10 +198,10 @@ class Rig(BaseSpineRig):
             self.make_ik_end_tweak_bone(orgs[-1])
         ]
 
-    def make_ik_tweak_bone(self, i, org):
+    def make_ik_tweak_bone(self, _i: int, org: str):
         return self.copy_bone(org, make_derived_name(org, 'ctrl', '_ik'))
 
-    def make_ik_end_tweak_bone(self, org):
+    def make_ik_end_tweak_bone(self, org: str):
         name = self.copy_bone(org, make_derived_name(org, 'ctrl', '_ik_end'), scale=0.5)
         put_bone(self.obj, name, self.get_bone(org).tail)
         return name
@@ -218,7 +223,7 @@ class Rig(BaseSpineRig):
         for args in zip(count(1), self.bones.ctrl.ik_tweak):
             self.configure_ik_tweak_bone(*args)
 
-    def configure_ik_tweak_bone(self, i, ctrl):
+    def configure_ik_tweak_bone(self, _i: int, ctrl: str):
         bone = self.get_bone(ctrl)
         bone.lock_scale = True, True, True
         bone.rotation_mode = 'XZY'
@@ -228,23 +233,23 @@ class Rig(BaseSpineRig):
     def rig_ik_tweak_chain(self):
         ctrl = self.bones.ctrl
 
-        for args in zip(count(1), ctrl.ik_tweak[:-2]):
-            self.rig_ik_tweak_bone_mid(*args, ctrl.hips, ctrl.chest)
+        for i, tweak, in zip(count(1), ctrl.ik_tweak[:-2]):
+            self.rig_ik_tweak_bone_mid(i, tweak, ctrl.hips, ctrl.chest)
 
         self.make_constraint(
             ctrl.ik_tweak[-2], 'COPY_ROTATION', ctrl.ik_tweak[-1],
             mix_mode='BEFORE', space='LOCAL'
         )
 
-    def get_hips_weight(self, i):
+    def get_hips_weight(self, i: int):
         x = i * 4 / len(self.bones.org)
         return 1 + (1.0/24) * x - 0.375 * x * x + (1.0/12) * x * x * x
 
-    def get_chest_weight(self, i):
+    def get_chest_weight(self, i: int):
         x = i * 4 / len(self.bones.org)
         return (47.0/60) * x - 0.5 * x * x + (7.0/60) * x * x * x
 
-    def rig_ik_tweak_bone_mid(self, i, tweak, hips, chest):
+    def rig_ik_tweak_bone_mid(self, i: int, tweak: str, hips: str, chest: str):
         self.make_constraint(
             tweak, 'COPY_ROTATION', hips, mix_mode='ADD', space='LOCAL',
             use_xyz=(False, True, False),
@@ -262,7 +267,7 @@ class Rig(BaseSpineRig):
         for args in zip(count(1), self.bones.ctrl.ik_tweak, self.bones.mch.ik_forward[1:]):
             self.generate_ik_tweak_widget(*args)
 
-    def generate_ik_tweak_widget(self, i, ctrl, wgt_mch):
+    def generate_ik_tweak_widget(self, _i: int, ctrl: str, wgt_mch: str):
         set_bone_widget_transform(self.obj, ctrl, wgt_mch)
 
         obj = create_circle_widget(self.obj, ctrl, head_tail=0.0, with_line=False)
@@ -288,22 +293,24 @@ class Rig(BaseSpineRig):
 
         ControlLayersOption.FK.assign_rig(self, self.bones.ctrl.fk)
 
-        shared_ctls = [self.bones.ctrl.hips, self.bones.ctrl.master]
+        shared_ctrls = [self.bones.ctrl.hips, self.bones.ctrl.master]
         if self.component_hips_pivot:
-            shared_ctls.append(self.component_hips_pivot.control)
+            shared_ctrls.append(self.component_hips_pivot.control)
 
-        ControlLayersOption.FK.assign_rig(self, shared_ctls, combine=True, priority=-1)
+        ControlLayersOption.FK.assign_rig(self, shared_ctrls, combine=True, priority=-1)
 
     @stage.configure_bones
     def rig_control_chain(self):
         for args in zip(count(0), self.bones.ctrl.fk, self.bones.mch.ik_forward[1:]):
             self.rig_control_bone(*args)
 
-    def rig_control_bone(self, i, fk, ik):
+    def rig_control_bone(self, _i: int, fk: str, ik: str):
         con = self.make_constraint(fk, 'COPY_TRANSFORMS', ik)
-        self.make_driver(con, 'influence', variables=[(self.bones.ctrl.master, 'fk_chest')], polynomial=[1.0,-1.0])
+        self.make_driver(con, 'influence',
+                         variables=[(self.bones.ctrl.master, 'fk_chest')],
+                         polynomial=[1.0, -1.0])
 
-    def make_control_widget(self, i, ctrl):
+    def make_control_widget(self, i: int, ctrl: str):
         create_circle_widget(self.obj, ctrl, radius=1.0, head_tail=0.5)
 
     ####################################################
@@ -313,7 +320,7 @@ class Rig(BaseSpineRig):
     def make_mch_ik_back_chain(self):
         self.bones.mch.ik_back = map_list(self.make_mch_ik_back_bone, count(1), self.bones.org[1:])
 
-    def make_mch_ik_back_bone(self, i, org):
+    def make_mch_ik_back_bone(self, _i: int, org: str):
         name = self.copy_bone(org, make_derived_name(org, 'mch', '.ik_back'))
         flip_bone(self.obj, name)
         return name
@@ -330,7 +337,7 @@ class Rig(BaseSpineRig):
         for args in zip(count(1), self.bones.mch.ik_back, self.bones.ctrl.ik_tweak):
             self.rig_mch_ik_back_bone(*args)
 
-    def rig_mch_ik_back_bone(self, i, back, tweak):
+    def rig_mch_ik_back_bone(self, _i: int, back: str, tweak: str):
         self.make_constraint(back, 'DAMPED_TRACK', tweak)
 
     ####################################################
@@ -343,10 +350,10 @@ class Rig(BaseSpineRig):
             self.make_mch_ik_forward_end_bone(self.bones.org[-1])
         ]
 
-    def make_mch_ik_forward_bone(self, i, org):
+    def make_mch_ik_forward_bone(self, _i: int, org: str):
         return self.copy_bone(org, make_derived_name(org, 'mch', '.ik_forward'))
 
-    def make_mch_ik_forward_end_bone(self, org):
+    def make_mch_ik_forward_end_bone(self, org: str):
         name = self.copy_bone(org, make_derived_name(org, 'mch', '.ik_forward_end'), scale=0.5)
         put_bone(self.obj, name, self.get_bone(org).tail)
         return name
@@ -363,10 +370,11 @@ class Rig(BaseSpineRig):
         ik_back = self.bones.mch.ik_back
         ik_tweak = self.bones.ctrl.ik_tweak
 
-        for args in zip(count(0), self.bones.mch.ik_forward, [*ik_back, ik_back[-1]], [None, *ik_tweak]):
+        for args in zip(count(0), self.bones.mch.ik_forward,
+                        [*ik_back, ik_back[-1]], [None, *ik_tweak]):
             self.rig_mch_ik_forward_bone(*args)
 
-    def rig_mch_ik_forward_bone(self, i, forward, back, tweak):
+    def rig_mch_ik_forward_bone(self, i: int, forward: str, back: str, tweak: str):
         if tweak:
             self.make_constraint(forward, 'COPY_ROTATION', tweak)
 
@@ -377,13 +385,15 @@ class Rig(BaseSpineRig):
                 influence=1 - self.get_chest_weight(i)
             )
 
-        tcon = self.make_constraint(
+        trk_con = self.make_constraint(
             forward, 'DAMPED_TRACK', back,
-            head_tail = 0.0 if i == self.chain_length-1 else 1.0
+            head_tail=0.0 if i == self.chain_length-1 else 1.0
         )
 
         if i == 0:
-            self.make_driver(tcon, 'influence', variables=[(self.bones.ctrl.master, 'fk_hips')], polynomial=[1.0, -1.0])
+            self.make_driver(trk_con, 'influence',
+                             variables=[(self.bones.ctrl.master, 'fk_hips')],
+                             polynomial=[1.0, -1.0])
 
     ####################################################
     # Tweak bones
@@ -399,19 +409,20 @@ class Rig(BaseSpineRig):
     # SETTINGS
 
     @classmethod
-    def add_parameters(self, params):
+    def add_parameters(cls, params):
         super().add_parameters(params)
 
         params.make_custom_hips_pivot = bpy.props.BoolProperty(
-            name        = "Custom Hips Pivot Control",
-            default     = False,
-            description = "Create a rotation pivot control that can be repositioned arbitrarily for the hips"
+            name="Custom Hips Pivot Control",
+            default=False,
+            description="Create a rotation pivot control that can be repositioned "
+                        "arbitrarily for the hips"
         )
 
         ControlLayersOption.FK.add_parameters(params)
 
     @classmethod
-    def parameters_ui(self, layout, params):
+    def parameters_ui(cls, layout, params):
         super().parameters_ui(layout, params)
 
         layout.prop(params, 'make_custom_hips_pivot')
@@ -454,7 +465,6 @@ def create_sample(obj):
     bone.parent = arm.edit_bones[bones['spine.002']]
     bones['spine.003'] = bone.name
 
-
     bpy.ops.object.mode_set(mode='OBJECT')
     pbone = obj.pose.bones[bones['spine']]
     pbone.rigify_type = 'spines.blenrig_spine'
@@ -465,7 +475,10 @@ def create_sample(obj):
     pbone.rotation_mode = 'XZY'
 
     try:
-        pbone.rigify_parameters.tweak_layers = [False, False, False, False, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False]
+        pbone.rigify_parameters.tweak_layers = [
+            False, False, False, False, True, False, False, False, False, False, False, False,
+            False, False, False, False, False, False, False, False, False, False, False, False,
+            False, False, False, False, False, False, False, False]
     except AttributeError:
         pass
     pbone = obj.pose.bones[bones['spine.001']]

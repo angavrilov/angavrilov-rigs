@@ -21,20 +21,22 @@
 import bpy
 import math
 
-from itertools import count, repeat
-from mathutils import Vector, Matrix
+from itertools import count
+from typing import Sequence
 from math import sqrt
 from bl_math import clamp
+from mathutils import Quaternion, Matrix, Vector
 
+from rigify.rigs.skin.skin_nodes import ControlBoneNode
 from rigify.utils.mechanism import quote_property, driver_var_transform
-from rigify.utils.naming import make_derived_name, Side, SideZ, get_name_side
+from rigify.utils.naming import make_derived_name, Side, get_name_side
 from rigify.utils.widgets_basic import create_circle_widget
-from rigify.utils.misc import map_list, force_lazy, LazyRef
+from rigify.utils.misc import force_lazy, LazyRef, Lazy
 
 from rigify.base_rig import stage
 
 from rigify.rigs.skin.skin_parents import ControlBoneParentOffset
-from rigify.rigs.skin.skin_rigs import BaseSkinRig
+from rigify.rigs.skin.skin_rigs import BaseSkinRig, BaseSkinChainRig
 
 from rigify.rigs.skin.basic_chain import Rig as BasicChainRig
 
@@ -47,6 +49,14 @@ class Rig(BaseSkinRig):
 
     def find_org_bones(self, bone):
         return bone.name
+
+    make_control: bool
+    squash_limit: Sequence[float]
+    use_rhombus: bool
+    input_ref: Lazy[str]
+
+    transform_orientation: Quaternion
+    transform_space: Matrix
 
     def initialize(self):
         super().initialize()
@@ -74,7 +84,7 @@ class Rig(BaseSkinRig):
     # UTILITIES
 
     def is_corner_node(self, node):
-        "Checks if this node is where two L/R child chains meet."
+        """Checks if this node is where two L/R child chains meet."""
         siblings = [n for n in node.get_merged_siblings() if n.rig in self.child_chains]
 
         sides_x = set(n.name_split.side for n in siblings)
@@ -82,15 +92,20 @@ class Rig(BaseSkinRig):
         return {Side.LEFT, Side.RIGHT}.issubset(sides_x)
 
     def get_node_z(self, node):
-        "Compute Z coordinate of the node in the local space of the control."
+        """Compute Z coordinate of the node in the local space of the control."""
         return (self.transform_space @ node.point).z
 
     def get_node_side(self, node):
-        "Compute the Z side of the node in the local space of the control."
+        """Compute the Z side of the node in the local space of the control."""
         return 1 if self.get_node_z(node) > 0 else 0
 
     ####################################################
     # Control Nodes
+
+    child_chains: list[BasicChainRig]
+    chain_to_layer: dict[BaseSkinChainRig, int] | None
+    node_layer: dict[ControlBoneNode, int]
+    layer_sizes: list[tuple[float, tuple[float, float]]]
 
     def init_child_chains(self):
         # Use child Left/Right chains
@@ -104,7 +119,7 @@ class Rig(BaseSkinRig):
             return
 
         # Build lists of corner nodes for all child chains.
-        corners = [[], []]
+        corners: list[list[ControlBoneNode]] = [[], []]
 
         for child in self.child_chains:
             for node in child.control_nodes:
@@ -145,7 +160,7 @@ class Rig(BaseSkinRig):
         # Build a mapping for nodes to layer and collect coordinates
         self.node_layer = {}
 
-        pts = [ [] for top in tops ]
+        pts: list[list[Vector]] = [[] for _top in tops]
 
         for child in self.child_chains:
             layer_id = self.chain_to_layer[child]
@@ -164,18 +179,18 @@ class Rig(BaseSkinRig):
 
         for i, item in enumerate(pts):
             # Sizes in Z direction
-            minz = min(pt.z for pt in item)
-            maxz = max(pt.z for pt in item)
-            assert minz < 0 < maxz
+            min_z = min(pt.z for pt in item)
+            max_z = max(pt.z for pt in item)
+            assert min_z < 0 < max_z
 
-            # Size in X direction: use points with smallest absolute Z
-            minx = min((pt for pt in item if pt.x < 0), key=lambda p: abs(p.z)).x
-            maxx = min((pt for pt in item if pt.x > 0), key=lambda p: abs(p.z)).x
-            assert minx < 0 < maxx
+            # Size in X direction: use points with the smallest absolute Z
+            min_x = min((pt for pt in item if pt.x < 0), key=lambda p: abs(p.z)).x
+            max_x = min((pt for pt in item if pt.x > 0), key=lambda p: abs(p.z)).x
+            assert min_x < 0 < max_x
 
-            width = (abs(minx) + abs(maxx))/2
+            width = (abs(min_x) + abs(max_x))/2
 
-            self.layer_sizes.append((width, (-minz, maxz)))
+            self.layer_sizes.append((width, (-min_z, max_z)))
 
     def build_control_node_parent(self, node, parent_bone):
         return self.build_control_node_parent_next(node)
@@ -185,12 +200,16 @@ class Rig(BaseSkinRig):
 
     ####################################################
     # BONES
-    #
-    # ctrl:
-    #   master
-    #     Master control
-    #
-    ####################################################
+
+    class CtrlBones(BaseSkinRig.CtrlBones):
+        master: str                    # Master control
+
+    bones: BaseSkinRig.ToplevelBones[
+        str,
+        'Rig.CtrlBones',
+        'Rig.MchBones',
+        str
+    ]
 
     ####################################################
     # Master control
@@ -210,7 +229,6 @@ class Rig(BaseSkinRig):
     def make_master_control_widget(self):
         if self.make_control:
             ctrl = self.bones.ctrl.master
-            bone = self.get_bone(ctrl)
 
             layer_x, layer_z = self.layer_sizes[0]
             radius = min(abs(x) for x in [layer_x, *layer_z])
@@ -221,16 +239,28 @@ class Rig(BaseSkinRig):
     # Scale mechanism
 
     def scale_expr(self, r_ratio, scale_expr, z_side, gap_scale=1):
-        "Expression going from value 1 and derivative 0 at scale_expr=1, to asymptote scale_expr*r_ratio + C"
+        """
+        Expression going from value 1 and derivative 0 at scale_expr=1,
+        to asymptote scale_expr*r_ratio + C
+        """
         squash = (1 - self.squash_limit[z_side]) * gap_scale * 2 / math.pi
         squash_expr = f'{squash:.4}*atan(({scale_expr}-1)*{r_ratio/(1-r_ratio)/squash:.4})'
         return f'lerp(1-{squash_expr},{scale_expr},{r_ratio:.4})'
 
-    def arrange_scale_properties(self):
-        self.loop_ratio_vars = [['','','']]
+    loop_ratio_vars: list[list[str]] | None
 
-        self.auxvar_list_sz = []
-        self.auxvar_list_sx = []
+    aux_var_list_sx: list[tuple[str, str]]
+    aux_var_list_sz: list[tuple[str, str]]
+    inner_size: tuple[float, float]
+    inner_radius: float
+    sx_expr: str
+    sz_expr: str
+
+    def arrange_scale_properties(self):
+        self.loop_ratio_vars = [['', '', '']]
+
+        self.aux_var_list_sz = []
+        self.aux_var_list_sx = []
 
         # Compute the innermost ellipse size
         layer0_width, layer0_height = self.layer_sizes[0]
@@ -240,45 +270,63 @@ class Rig(BaseSkinRig):
         # Determine if compensation is needed for the innermost larger dimension
         self.inner_radius = r = min(size)
 
-        isround = r/max(size) > 0.9 or not self.params.skin_spread_inner_circle
+        is_round = r/max(size) > 0.9 or not self.params.skin_spread_inner_circle
 
-        self.sxexpr = sxexpr = '$sx' if isround or size[0] == r else '$sv'
-        self.szexpr = szexpr = '$sz' if isround or size[1] == r else '$sv'
+        self.sx_expr = sx_expr = '$sx' if is_round or size[0] == r else '$sv'
+        self.sz_expr = sz_expr = '$sz' if is_round or size[1] == r else '$sv'
 
         # Compute auxiliary variables
-        for i, (width, zlim) in enumerate(self.layer_sizes[1:]):
-            lvars = ['', '', '']
+        for i, (width, z_lim) in enumerate(self.layer_sizes[1:]):
+            l_vars = ['', '', '']
+            lz_expr0 = None
 
-            # Ratios between current outer and innermost layer radius in the given dimension for rhombic correction
+            # Ratios between current outer and innermost layer radius in the given dimension
+            # for rhombus correction.
             if self.use_rhombus:
-                if zlim[0] >= width * 1.1:
-                    zr_ratio0 = size[1] / zlim[0]
-                    lzexpr0 = f'max(1.001,{self.scale_expr(zr_ratio0, szexpr, 1)}/max(1e-3,{szexpr}*{zr_ratio0:.4}))'
-                    lzexpr0 = lzexpr0.replace('$','')
+                if z_lim[0] >= width * 1.1:
+                    zr_ratio0 = size[1] / z_lim[0]
+                    lz_expr0 = f'max(1.001,{self.scale_expr(zr_ratio0, sz_expr, 1)}/max(1e-3,{sz_expr}*{zr_ratio0:.4}))'  # noqa: E501
+                    lz_expr0 = lz_expr0.replace('$', '')
 
-                    lvars[0] = var = 'lz'+str(i)
-                    self.auxvar_list_sz.append((var, lzexpr0))
+                    l_vars[0] = var = 'lz'+str(i)
+                    self.aux_var_list_sz.append((var, lz_expr0))
 
-                if zlim[1] >= width * 1.1:
-                    zr_ratio1 = size[1] / zlim[1]
-                    lzexpr1 = f'max(1.001,{self.scale_expr(zr_ratio1, szexpr, 1)}/max(1e-3,{szexpr}*{zr_ratio1:.4}))'
-                    lzexpr1 = lzexpr1.replace('$','')
+                if z_lim[1] >= width * 1.1:
+                    zr_ratio1 = size[1] / z_lim[1]
+                    lz_expr1 = f'max(1.001,{self.scale_expr(zr_ratio1, sz_expr, 1)}/max(1e-3,{sz_expr}*{zr_ratio1:.4}))'  # noqa: E501
+                    lz_expr1 = lz_expr1.replace('$', '')
 
-                    if lvars[0] and lzexpr0 == lzexpr1:
-                        lvars[1] = lvars[0]
+                    if l_vars[0] and lz_expr0 == lz_expr1:
+                        l_vars[1] = l_vars[0]
                     else:
-                        lvars[1] = var = 'lz'+str(i)+'m'
-                        self.auxvar_list_sz.append((var, lzexpr1))
+                        l_vars[1] = var = 'lz'+str(i)+'m'
+                        self.aux_var_list_sz.append((var, lz_expr1))
 
-                if width >= min(zlim) * 1.1:
+                if width >= min(z_lim) * 1.1:
                     xr_ratio = size[0] / width
-                    lxexpr = f'max(1.001,{self.scale_expr(xr_ratio, sxexpr, 1)}/max(1e-3,{sxexpr}*{xr_ratio:.4}))'
-                    lxexpr = lxexpr.replace('$','')
+                    lx_expr = f'max(1.001,{self.scale_expr(xr_ratio, sx_expr, 1)}/max(1e-3,{sx_expr}*{xr_ratio:.4}))'  # noqa: E501
+                    lx_expr = lx_expr.replace('$', '')
 
-                    lvars[2] = var = 'lx'+str(i)
-                    self.auxvar_list_sx.append((var, lxexpr))
+                    l_vars[2] = var = 'lx'+str(i)
+                    self.aux_var_list_sx.append((var, lx_expr))
 
-            self.loop_ratio_vars.append(lvars)
+            self.loop_ratio_vars.append(l_vars)
+
+    def make_spread_driver(self, owner, prop, expression, ratio, **kwargs):
+        assert 0 < ratio < 1
+
+        fcu = self.make_driver(owner, prop, expression=f'({expression})*{ratio}', **kwargs)
+
+        # Add curve points for smooth transition from constant 1 to identity at 1
+        fcu.extrapolation = 'LINEAR'
+        kf = fcu.keyframe_points.insert(ratio, 1)
+        kf.handle_left_type = kf.handle_right_type = 'ALIGNED'
+        kf.handle_left = (0, 1)
+        kf.handle_right = (1 - (1 - ratio) * 0.25, 1)
+        kf = fcu.keyframe_points.insert(1.1, 1.1)
+        kf.handle_left_type = kf.handle_right_type = 'ALIGNED'
+        kf.handle_left = (1, 1)
+        kf.handle_right = (1.2, 1.2)
 
     @stage.configure_bones
     def make_scale_properties(self):
@@ -286,75 +334,67 @@ class Rig(BaseSkinRig):
 
         input_bone = force_lazy(self.input_ref)
 
-        svarsx = { 'sx': driver_var_transform(self.obj, input_bone, type='SCALE_X', space='LOCAL') }
-        svarsz = { 'sz': driver_var_transform(self.obj, input_bone, type='SCALE_Z', space='LOCAL') }
+        sx_vars = {'sx': driver_var_transform(self.obj, input_bone, type='SCALE_X', space='LOCAL')}
+        sz_vars = {'sz': driver_var_transform(self.obj, input_bone, type='SCALE_Z', space='LOCAL')}
 
         # If the innermost loop is not a circle, generate a proxy variable for the larger dimension
-        fcu = None
-
-        if self.sxexpr == '$sv':
+        if self.sx_expr == '$sv':
             # Inner X dimension is larger than Z
             bone['sv'] = 0.0
             ratio = self.inner_size[1]/self.inner_size[0]
-            fcu = self.make_driver(bone, quote_property('sv'), expression=f'sx*{ratio}', variables=svarsx)
-            svarsx = { 'sv': (self.bones.org, 'sv') }
+            self.make_spread_driver(bone, quote_property('sv'), 'sx', ratio, variables=sx_vars)
+            sx_vars = {'sv': (self.bones.org, 'sv')}
 
-        elif self.szexpr == '$sv':
+        elif self.sz_expr == '$sv':
             # Inner Z dimension is larger than X
             bone['sv'] = 0.0
             ratio = self.inner_size[0]/self.inner_size[1]
-            fcu = self.make_driver(bone, quote_property('sv'), expression=f'sz*{ratio}', variables=svarsz)
-            svarsz = { 'sv': (self.bones.org, 'sv') }
-
-        if fcu:
-            # Add curve points for smooth transition from constant 1 to identity at 1
-            fcu.extrapolation = 'LINEAR'
-            kf = fcu.keyframe_points.insert(ratio, 1)
-            kf.handle_left_type = kf.handle_right_type = 'ALIGNED'
-            kf.handle_left = (0, 1)
-            kf.handle_right = (1-(1-ratio)*0.25, 1)
-            kf = fcu.keyframe_points.insert(1.1, 1.1)
-            kf.handle_left_type = kf.handle_right_type = 'ALIGNED'
-            kf.handle_left = (1, 1)
-            kf.handle_right = (1.2, 1.2)
+            self.make_spread_driver(bone, quote_property('sv'), 'sx', ratio, variables=sx_vars)
+            sz_vars = {'sv': (self.bones.org, 'sv')}
 
         # Emit auxiliary variables
-        for var, expr in self.auxvar_list_sx:
+        for var, expr in self.aux_var_list_sx:
             bone[var] = 1.0
-            self.make_driver(bone, quote_property(var), expression=expr, variables=svarsx)
+            self.make_driver(bone, quote_property(var), expression=expr, variables=sx_vars)
 
-        for var, expr in self.auxvar_list_sz:
+        for var, expr in self.aux_var_list_sz:
             bone[var] = 1.0
-            self.make_driver(bone, quote_property(var), expression=expr, variables=svarsz)
+            self.make_driver(bone, quote_property(var), expression=expr, variables=sz_vars)
 
-    def rhombic_scale_expr(self, sxexpr, pt_x, pt_z, in_xsize, in_zsize, out_xsize, out_zsize, dim_idx):
+    def rhombic_scale_expr(self, sx_expr, pt_x, pt_z,
+                           in_size_x, in_size_z, out_size_x, out_size_z, dim_idx):
         """
         Apply correction to round out loops that have rhombic rather than elliptical shape.
-        sxexpr: input X scale expression
-        pt_x, pt_z: point coordinates
-        in_xsize, in_zsize: inner loop size
-        out_xsize, out_zsize: outer loop size
-        dim_idx: dimension
-        """
-        zpos = abs(pt_z) / out_zsize
-        common_sexpr = self.scale_expr(in_xsize/out_xsize, sxexpr, dim_idx)
 
-        if zpos < 1:
-            l = out_zsize / in_zsize
-            sxsize = -out_xsize if pt_x < 0 else out_xsize
+        Args:
+            sx_expr: input X scale expression
+            pt_x: point coordinates
+            pt_z: point coordinates
+            in_size_x: inner loop size
+            in_size_z: inner loop size
+            out_size_x: outer loop size
+            out_size_z: outer loop size
+            dim_idx: dimension
+        """
+        z_pos = abs(pt_z) / out_size_z
+        common_sexpr = self.scale_expr(in_size_x / out_size_x, sx_expr, dim_idx)
+
+        if z_pos < 1:
+            l = out_size_z / in_size_z  # noqa: E741
+            sx_size = -out_size_x if pt_x < 0 else out_size_x
 
             # Circle transitioning into line from (1,0) to (0,l) at rest and in current pose
-            xbaseval = (sqrt(1-pow(clamp(zpos*l),2)) if zpos*l*l < 1 else (1-zpos)*l/sqrt(l*l-1))
-            xbase = f'(sqrt(1-pow(clamp({zpos:.3}*$l),2)) if {zpos:.3}*$l*$l < 1 else {1-zpos:.3}*$l/sqrt($l*$l-1))'
+            xbase_val = (sqrt(1-pow(clamp(z_pos*l), 2)) if z_pos*l*l < 1 else (1-z_pos)*l/sqrt(l*l-1))                   # noqa: E501
+            xbase = f'(sqrt(1-pow(clamp({z_pos:.3}*$l),2)) if {z_pos:.3}*$l*$l < 1 else {1-z_pos:.3}*$l/sqrt($l*$l-1))'  # noqa: E501
 
             # Pure ellipse coordinate
-            ellipse_x = sqrt(1-pow(clamp(zpos),2))
+            ellipse_x = sqrt(1-pow(clamp(z_pos), 2))
 
             # Fade correction depending on how close the actual shape is to rhombus or ellipse
-            fac = clamp((ellipse_x - abs(pt_x/out_xsize))/max(1e-6, ellipse_x - xbaseval))
+            fac = clamp((ellipse_x - abs(pt_x / out_size_x)) / max(1e-6, ellipse_x - xbase_val))
 
             if fac > 0:
-                return f'({common_sexpr})*({pt_x:.4}+({xbase}-{xbaseval:.4})*{sxsize*fac:.4})-{pt_x:.4}'
+                return f'({common_sexpr})*({pt_x:.4}+({xbase}-{xbase_val:.4})*{sx_size*fac:.4})-{pt_x:.4}'  # noqa: E501
 
         return f'({common_sexpr}-1)*{pt_x:.4}'
 
@@ -371,12 +411,12 @@ class Rig(BaseSkinRig):
         parent = ControlBoneParentOffset(self, node, parent)
 
         layer = self.node_layer[node.merged_master]
-        layer_width, layer_limz = self.layer_sizes[layer]
+        layer_width, layer_limit_z = self.layer_sizes[layer]
 
         pt = self.transform_space @ node.point
         side = self.get_node_side(node)
 
-        svars = {
+        s_vars = {
             'sx': driver_var_transform(self.obj, self.input_ref, type='SCALE_X', space='LOCAL'),
             'sy': driver_var_transform(self.obj, self.input_ref, type='SCALE_Y', space='LOCAL'),
             'sz': driver_var_transform(self.obj, self.input_ref, type='SCALE_Z', space='LOCAL'),
@@ -384,41 +424,44 @@ class Rig(BaseSkinRig):
         }
 
         # Scale based offsets
-        yoff = f'($sy-1)*{pt.y:.4}'
+        y_offset = f'($sy-1)*{pt.y:.4}'
 
         if layer == 0:
             # Innermost loop
-            xoff = f'({self.sxexpr}-1)*{pt.x:.4}'
-            zoff = f'({self.szexpr}-1)*{pt.z:.4}'
+            x_offset = f'({self.sx_expr}-1)*{pt.x:.4}'
+            z_offset = f'({self.sz_expr}-1)*{pt.z:.4}'
 
         else:
-            zlimit = layer_limz[side]
+            z_limit = layer_limit_z[side]
 
             xr_ratio = self.inner_size[0] / layer_width
-            zr_ratio = self.inner_size[1] / zlimit
+            zr_ratio = self.inner_size[1] / z_limit
 
-            xoff = f'({self.scale_expr(xr_ratio, self.sxexpr, 0)}-1)*{pt.x:.4}'
-            zoff = f'({self.scale_expr(zr_ratio, self.szexpr, 1)}-1)*{pt.z:.4}'
+            x_offset = f'({self.scale_expr(xr_ratio, self.sx_expr, 0)}-1)*{pt.x:.4}'
+            z_offset = f'({self.scale_expr(zr_ratio, self.sz_expr, 1)}-1)*{pt.z:.4}'
 
             # Apply circle+line shape correction for asymmetric loops
             if self.use_rhombus:
-                if zlimit > layer_width * 1.1:
-                    svars['l'] = (self.bones.org, self.loop_ratio_vars[layer][side])
+                if z_limit > layer_width * 1.1:
+                    s_vars['l'] = (self.bones.org, self.loop_ratio_vars[layer][side])
 
-                    xoff = self.rhombic_scale_expr(
-                        self.sxexpr, pt.x, pt.z, self.inner_size[0], self.inner_size[1], layer_width, zlimit, 0)
+                    x_offset = self.rhombic_scale_expr(
+                        self.sx_expr, pt.x, pt.z, self.inner_size[0], self.inner_size[1],
+                        layer_width, z_limit, 0)
 
-                elif layer_width > zlimit * 1.1:
-                    svars['l'] = (self.bones.org, self.loop_ratio_vars[layer][2])
+                elif layer_width > z_limit * 1.1:
+                    s_vars['l'] = (self.bones.org, self.loop_ratio_vars[layer][2])
 
-                    zoff = self.rhombic_scale_expr(
-                        self.szexpr, pt.z, pt.x, self.inner_size[1], self.inner_size[0], zlimit, layer_width, 1)
+                    z_offset = self.rhombic_scale_expr(
+                        self.sz_expr, pt.z, pt.x, self.inner_size[1], self.inner_size[0],
+                        z_limit, layer_width, 1)
 
-        parent.add_location_driver(self.transform_orientation, 0, xoff, svars)
-        parent.add_location_driver(self.transform_orientation, 1, yoff, svars)
-        parent.add_location_driver(self.transform_orientation, 2, zoff, svars)
+        parent.add_location_driver(self.transform_orientation, 0, x_offset, s_vars)
+        parent.add_location_driver(self.transform_orientation, 1, y_offset, s_vars)
+        parent.add_location_driver(self.transform_orientation, 2, z_offset, s_vars)
 
-        parent.add_copy_local_location(self.input_ref, influence=self.params.skin_spread_fade**layer)
+        parent.add_copy_local_location(
+            self.input_ref, influence=self.params.skin_spread_fade**layer)
         return parent
 
     ####################################################
@@ -432,7 +475,7 @@ class Rig(BaseSkinRig):
     # SETTINGS
 
     @classmethod
-    def add_parameters(self, params):
+    def add_parameters(cls, params):
         params.make_control = bpy.props.BoolProperty(
             name="Control",
             default=True,
@@ -447,21 +490,24 @@ class Rig(BaseSkinRig):
 
         params.skin_spread_fade = bpy.props.FloatProperty(
             name="Layer Fade", default=0.5, min=0, max=1,
-            description="Specifies how much the influence of the control translation fades for each loop",
+            description="Specifies how much the influence of the control translation fades "
+                        "for each loop",
         )
 
         params.skin_spread_inner_circle = bpy.props.BoolProperty(
             name="Circularize Inner Shape", default=False,
-            description="If the inner loop isn't circular, delay upscale of the longer dimension until it is circularized",
+            description="If the inner loop isn't circular, delay upscale of the longer "
+                        "dimension until it is circularized",
         )
 
         params.skin_spread_rhombus_correction = bpy.props.BoolProperty(
             name="Rhombus Correction", default=True,
-            description="Apply correction to widen loops that have rhombic rather than elliptical shape into ellipses",
+            description="Apply correction to widen loops that have rhombic rather than "
+                        "elliptical shape into ellipses",
         )
 
     @classmethod
-    def parameters_ui(self, layout, params):
+    def parameters_ui(cls, layout, params):
         layout.prop(params, "make_control", text="Generate Control")
 
         row = layout.row()
@@ -470,4 +516,3 @@ class Rig(BaseSkinRig):
         layout.prop(params, "skin_spread_fade")
         layout.prop(params, "skin_spread_inner_circle")
         layout.prop(params, "skin_spread_rhombus_correction")
-

@@ -22,15 +22,15 @@ import bpy
 import bmesh
 import collections
 
-from bmesh.types import BMFace
+from bmesh.types import BMFace, BMesh
 
-from itertools import count
+from dataclasses import dataclass
 from mathutils import Matrix, Vector
 
 from bl_math import clamp
 
 from rigify.utils.bones import put_bone
-from rigify.utils.naming import org, strip_prefix, make_derived_name
+from rigify.utils.naming import strip_prefix, make_derived_name, make_original_name
 from rigify.utils.widgets import widget_generator
 
 from rigify.base_rig import stage, BaseRig
@@ -44,6 +44,9 @@ class Rig(BaseRig):
 
     def find_org_bones(self, bone):
         return bone.name
+
+    cage_obj: bpy.types.Object
+    com_table: dict[str, tuple[float, Vector]]
 
     def initialize(self):
         self.cage_obj = self.params.com_volume_cage
@@ -62,17 +65,19 @@ class Rig(BaseRig):
 
     ##############################
     # BONES
-    #
-    # org:
-    #   the bone
-    # ctrl:
-    #   master:
-    #     the visible 'control'
-    # mch:
-    #   helpers[]
-    #     helper mch bones
-    #
-    ##############################
+
+    class CtrlBones(BaseRig.CtrlBones):
+        master: str                    # The visible 'control'
+
+    class MchBones(BaseRig.MchBones):
+        helpers: list[str]             # Helper mch bones
+
+    bones: BaseRig.ToplevelBones[
+        str,
+        'Rig.CtrlBones',
+        'Rig.MchBones',
+        str
+    ]
 
     ##############################
     # Display bone
@@ -100,6 +105,15 @@ class Rig(BaseRig):
 
     ##############################
     # Mechanism
+
+    @dataclass
+    class MappingEntry:
+        name: str
+        mch: str
+        mass: float
+        head_tail: float
+
+    bone_mapping: list['Rig.MappingEntry']
 
     def post_generate_bones(self):
         eb = self.obj.data.edit_bones
@@ -145,40 +159,41 @@ class Rig(BaseRig):
                 put_bone(self.obj, mch, com)
 
                 helpers.append(mch)
-                final_list.append((name, mch, mass, 0))
+                final_list.append(self.MappingEntry(name, mch, mass, 0.0))
             else:
-                final_list.append((name, name, mass, head_tail))
+                final_list.append(self.MappingEntry(name, name, mass, head_tail))
 
         self.bone_mapping = final_list
         self.bones.mch.helpers = helpers
 
     @stage.parent_bones
     def parent_mch_helpers(self):
-        for name, mch, mass, head_tail in self.bone_mapping:
-            if name != mch:
-                self.set_bone_parent(mch, name)
+        for entry in self.bone_mapping:
+            if entry.name != entry.mch:
+                self.set_bone_parent(entry.mch, entry.name)
 
     @stage.rig_bones
     def rig_org_bone(self):
         org = self.bones.org
         total = 0
 
-        for name, mch, mass, head_tail in self.bone_mapping:
-            total += mass
+        for entry in self.bone_mapping:
+            total += entry.mass
             self.make_constraint(
-                org, 'COPY_LOCATION', mch,
-                influence=mass/total,
-                head_tail=head_tail,
+                org, 'COPY_LOCATION', entry.mch,
+                influence=entry.mass/total,
+                head_tail=entry.head_tail,
             )
 
     ##############################
     # UI
 
     @classmethod
-    def add_parameters(self, params):
+    def add_parameters(cls, params):
         params.com_volume_cage = bpy.props.PointerProperty(
             type=bpy.types.Object, name='Volume Cage Mesh',
-            description='Mesh object used to calculate mass distribution: should contain a separate manifold submesh assigned to each relevant bone vertex group',
+            description='Mesh object used to calculate mass distribution: should contain a '
+                        'separate manifold sub-mesh assigned to each relevant bone vertex group',
             poll=lambda self, obj: obj.type == 'MESH'
         )
 
@@ -189,7 +204,7 @@ class Rig(BaseRig):
         )
 
     @classmethod
-    def parameters_ui(self, layout, params):
+    def parameters_ui(cls, layout, params):
         layout.prop(params, 'com_precision')
 
         layout.label(text='Volume Cage Mesh:')
@@ -203,12 +218,14 @@ class Rig(BaseRig):
 class PostGenerateCaller(GeneratorPlugin):
     priority = -50
 
+    rig_list: list[Rig]
+
     def __init__(self, generator):
         super().__init__(generator)
 
         self.rig_list = []
 
-    def add_rig(self, rig):
+    def add_rig(self, rig: Rig):
         assert self.generator.stage == 'initialize'
         self.rig_list.append(rig)
 
@@ -268,8 +285,10 @@ def create_sample(obj):
     return bones
 
 
-def split_vgroup_components(rig, obj):
+def split_vgroup_components(rig: Rig, obj: bpy.types.Object) -> tuple[BMesh, dict[str, list]]:
     groups = {i: vg.name for i, vg in enumerate(obj.vertex_groups)}
+
+    assert isinstance(obj.data, bpy.types.Mesh)
 
     bm = bmesh.new()
     bm.from_mesh(obj.data)
@@ -282,7 +301,7 @@ def split_vgroup_components(rig, obj):
     vg_verts = collections.defaultdict(list)
 
     for vert in bm.verts:
-        vgs = [vgid for vgid, weight in vert[deform].items() if weight > 0]
+        vgs = [vg_id for vg_id, weight in vert[deform].items() if weight > 0]
 
         if len(vgs) > 1:
             names = ', '.join(groups.get(i, str(i)) for i in vgs)
@@ -308,18 +327,18 @@ def split_vgroup_components(rig, obj):
     # Extract faces for group components
     comp_table = {}
 
-    for gid, gname in groups.items():
+    for gid, grp_name in groups.items():
         if gid not in vg_faces:
-            rig.raise_error(f'No faces assigned to group: {gname}')
+            rig.raise_error(f'No faces assigned to group: {grp_name}')
 
         rv = bmesh.ops.split(bm, geom=vg_faces[gid], use_only_faces=True)
 
-        comp_table[gname] = rv['geom']
+        comp_table[grp_name] = rv['geom']
 
     return bm, comp_table
 
 
-def calc_mesh_center_of_mass(rig, bm, geom, name):
+def calc_mesh_center_of_mass(rig: Rig, bm: BMesh, geom: list, name: str) -> tuple[float, Vector]:
     faces = []
 
     for item in geom:
@@ -336,7 +355,7 @@ def calc_mesh_center_of_mass(rig, bm, geom, name):
     acc_com = Vector((0, 0, 0))
 
     for face in tri_rv['faces']:
-        p1, p2, p3 = [l.vert.co - center for l in face.loops]
+        p1, p2, p3 = [loop.vert.co - center for loop in face.loops]
 
         volume = Matrix((p1, p2, p3)).determinant() / 6
         com = (p1 + p2 + p3) / 4
@@ -347,7 +366,7 @@ def calc_mesh_center_of_mass(rig, bm, geom, name):
     return acc_volume, center + (acc_com / acc_volume)
 
 
-def calc_vgroup_com(rig, obj):
+def calc_vgroup_com(rig: Rig, obj: bpy.types.Object) -> dict[str, tuple[float, Vector]]:
     bm, comp_table = split_vgroup_components(rig, obj)
 
     return {
@@ -356,6 +375,7 @@ def calc_vgroup_com(rig, obj):
     }
 
 
+# noinspection PyPep8Naming
 class MESH_OT_rigify_add_com_volume_cage(bpy.types.Operator):
     bl_idname = 'mesh.rigify_add_com_volume_cage'
     bl_label = "Add Center Of Mass Volume Cage"
@@ -382,7 +402,7 @@ class MESH_OT_rigify_add_com_volume_cage(bpy.types.Operator):
     }
 
     def generate_bone_cage(self, vertices, faces, vgroups, bone):
-        vbase = len(vertices)
+        v_base = len(vertices)
         mat = bone.bone.matrix_local @ Matrix.Scale(bone.length, 4)
 
         size = self.SIZE_TABLE.get(bone.name, (0.15, 0.15, 0.1, 0.1))
@@ -402,15 +422,15 @@ class MESH_OT_rigify_add_com_volume_cage(bpy.types.Operator):
         ]
 
         faces += [
-            tuple(idx + vbase for idx in tup) for tup in [
+            tuple(idx + v_base for idx in tup) for tup in [
                 (0, 1, 2, 3), (1, 5, 6, 2), (5, 4, 7, 6),
                 (4, 0, 3, 7), (4, 5, 1, 0), (3, 2, 6, 7),
             ]
         ]
 
-        name = org(bone.name)
+        name = make_original_name(bone.name)
 
-        vgroups.append((name, [i + vbase for i in range(8)]))
+        vgroups.append((name, [i + v_base for i in range(8)]))
 
     def create_mesh(self, obj, mesh, bones):
         vertices = []
@@ -423,8 +443,8 @@ class MESH_OT_rigify_add_com_volume_cage(bpy.types.Operator):
         mesh.from_pydata(vertices, [], faces)
         mesh.update()
 
-        for vgname, verts in vgroups:
-            vg = obj.vertex_groups.new(name=vgname)
+        for vg_name, verts in vgroups:
+            vg = obj.vertex_groups.new(name=vg_name)
             vg.add(verts, 1.0, 'REPLACE')
 
     def execute(self, context):
@@ -449,6 +469,8 @@ class MESH_OT_rigify_add_com_volume_cage(bpy.types.Operator):
         obj.hide_render = True
 
         context.collection.objects.link(obj)
+
+        # noinspection PyUnresolvedReferences
         pbone.rigify_parameters.com_volume_cage = obj
 
         return {'FINISHED'}

@@ -21,16 +21,14 @@
 import bpy
 import math
 
-from itertools import count, repeat
-from mathutils import Vector, Matrix
+from typing import Iterable
+from mathutils import Matrix, Quaternion
 
-from rigify.utils.rig import connected_children_names
-from rigify.utils.layers import ControlLayersOption
+from rigify.rigs.skin.skin_nodes import BaseSkinNode
 from rigify.utils.mechanism import quote_property, driver_var_transform
 from rigify.utils.naming import make_derived_name
-from rigify.utils.bones import align_bone_orientation, align_bone_to_axis, align_bone_roll
 from rigify.utils.widgets_basic import create_circle_widget
-from rigify.utils.misc import map_list, force_lazy, LazyRef
+from rigify.utils.misc import force_lazy, LazyRef, Lazy
 
 from rigify.base_rig import stage
 
@@ -46,6 +44,12 @@ class Rig(BaseSkinRig):
 
     def find_org_bones(self, bone):
         return bone.name
+
+    make_control: bool
+    input_ref: Lazy[str]
+
+    transform_orientation: Quaternion
+    transform_space: Matrix
 
     def initialize(self):
         super().initialize()
@@ -74,12 +78,16 @@ class Rig(BaseSkinRig):
 
     ####################################################
     # BONES
-    #
-    # ctrl:
-    #   master
-    #     Master control
-    #
-    ####################################################
+
+    class CtrlBones(BaseSkinRig.CtrlBones):
+        master: str                    # Master control
+
+    bones: BaseSkinRig.ToplevelBones[
+        str,
+        'Rig.CtrlBones',
+        'Rig.MchBones',
+        str
+    ]
 
     ####################################################
     # Master control
@@ -107,7 +115,8 @@ class Rig(BaseSkinRig):
             # Scaling above this causes folds to form
             self.make_constraint(
                 self.bones.ctrl.master, 'LIMIT_SCALE',
-                max_x=self.max_scale, max_y=self.max_scale, max_z=self.max_scale, owner_space='LOCAL',
+                max_x=self.max_scale, max_y=self.max_scale, max_z=self.max_scale,
+                owner_space='LOCAL',
                 use_transform_limit=True,
             )
 
@@ -116,19 +125,23 @@ class Rig(BaseSkinRig):
         if self.make_control:
             ctrl = self.bones.ctrl.master
             radius = self.params.skin_elastic_scale_radius
-            bone = self.get_bone(ctrl)
 
             create_circle_widget(self.obj, ctrl, radius=radius/self.get_bone(ctrl).length)
 
     ####################################################
     # Scale mechanism
 
+    eps: float
+    k_list: list[float]
+    blends: list[str]
+    max_scale: float
+
     @stage.initialize
     def init_scale_params1(self):
         self.eps = EPS_MIN
         self.k_list = [1, 3.55, 11]  # x 1.9, 3.5
         self.blends = [
-            '(-2.381*$f-20.883*atan($f*0.29)+17.191*atan($f*0.491))/(4.976*atan($f*0.491)-13.578*atan($f*0.29)-11.655*$f)',
+            '(-2.381*$f-20.883*atan($f*0.29)+17.191*atan($f*0.491))/(4.976*atan($f*0.491)-13.578*atan($f*0.29)-11.655*$f)', # noqa
             '(-1.033*atan($f*0.29)+0.378*atan($f*0.49)+0.114*$f)/$f',
         ]
         self.max_scale = 35
@@ -138,7 +151,7 @@ class Rig(BaseSkinRig):
         self.eps = 1
         self.k_list = [1, 3.6, 12]  # x 1.5, 2.5
         self.blends = [
-            '(-2.654*$f+11.758*atan($f*0.485)-15.159*atan($f*0.378))/(-9.938*$f+2.868*atan($f*0.485)-10.105*atan($f*0.378))',
+            '(-2.654*$f+11.758*atan($f*0.485)-15.159*atan($f*0.378))/(-9.938*$f+2.868*atan($f*0.485)-10.105*atan($f*0.378))', # noqa
             '(0.134*$f+0.250*atan($f*0.485)-0.881*atan($f*0.378))/$f',
         ]
         self.max_scale = 30
@@ -171,7 +184,7 @@ class Rig(BaseSkinRig):
                          expression='max(1e-5,(sx+sy-2)/2+sqrt(tx*tx+ty*ty))',
                          variables=variables)
 
-    def extend_control_node_parent(self, parent, node):
+    def extend_control_node_parent(self, parent, node: BaseSkinNode):
         parent = ControlBoneParentOffset(self, node, parent)
 
         pos = self.transform_space @ node.point
@@ -222,7 +235,7 @@ class Rig(BaseSkinRig):
     # SETTINGS
 
     @classmethod
-    def add_parameters(self, params):
+    def add_parameters(cls, params):
         params.make_control = bpy.props.BoolProperty(
             name="Control",
             default=True,
@@ -237,7 +250,7 @@ class Rig(BaseSkinRig):
         )
 
     @classmethod
-    def parameters_ui(self, layout, params):
+    def parameters_ui(cls, layout, params):
         layout.prop(params, "make_control", text="Generate Control")
         layout.prop(params, "skin_elastic_scale_radius")
 
@@ -246,7 +259,8 @@ class Rig(BaseSkinRig):
 EPS_MIN = 0.5*math.sqrt(3 + math.sqrt(17))
 
 
-def compute_scale_pinch_matrix(x, y, exact_radius, poissons_ratio, brush_radius):
+def compute_scale_pinch_matrix(x: float, y: float, exact_radius: float,
+                               poissons_ratio: float, brush_radius: float):
     x /= exact_radius
     y /= exact_radius
     v = poissons_ratio
@@ -270,7 +284,7 @@ def compute_scale_pinch_matrix(x, y, exact_radius, poissons_ratio, brush_radius)
     ))
 
 
-def compute_translate_weight(x, y, exact_radius, brush_radius):
+def compute_translate_weight(x: float, y: float, exact_radius: float, brush_radius: float):
     x /= exact_radius
     y /= exact_radius
 
@@ -285,7 +299,7 @@ def compute_translate_weight(x, y, exact_radius, brush_radius):
     return r * (e2 + 1) * (e2 + 1) * (2*e2 + r2) / (2*e2 + 1) / (e2 + r2) / (e2 + r2)
 
 
-def lerp_mix(items, weights):
+def lerp_mix(items: Iterable[str], weights: Iterable[str]):
     cur, *rest = items
     for item, weight in zip(rest, weights):
         cur = 'lerp(%s,%s,%s)' % (cur, item, weight)

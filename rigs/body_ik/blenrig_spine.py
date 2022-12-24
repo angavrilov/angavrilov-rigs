@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,13 +14,9 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
-
-import bpy
-
-from itertools import count
 
 from rigify.utils.naming import make_derived_name
 
@@ -31,20 +27,23 @@ from . import spine_rigs
 
 
 class Rig(spine_rigs.BaseBodyIkSpineRig, blenrig_spine.Rig):
-    ####################################################
-    # BONES
-    #
-    # mch:
-    #   ik_forward_base
-    #     First bone of the forward chain before hip IK correction
-    #
-    ####################################################
+    class MchBones(spine_rigs.BaseBodyIkSpineRig.MchBones, blenrig_spine.Rig.MchBones):
+        ik_forward_base: str           # First bone of the forward chain before hip IK correction.
+
+    bones: blenrig_spine.Rig.ToplevelBones[
+        list[str],
+        'Rig.CtrlBones',
+        'Rig.MchBones',
+        list[str]
+    ]
 
     def generate_body_ik_panel(self, panel):
         super().generate_body_ik_panel(panel)
 
         master = self.bones.ctrl.master
-        self.make_property(master, 'body_ik_move_hips', 0.0, description='Body IK offsets the hips control instead of the whole spine')
+        self.make_property(
+            master, 'body_ik_move_hips', 0.0,
+            description='Body IK offsets the hips control instead of the whole spine')
         panel.custom_prop(master, 'body_ik_move_hips', text='Body IK Hips', slider=True)
 
         spine_rigs.add_spine_ik_snap(
@@ -85,7 +84,8 @@ class Rig(spine_rigs.BaseBodyIkSpineRig, blenrig_spine.Rig):
             super().rig_mch_ik_forward_bone(i, self.bones.mch.ik_forward_base, back, tweak)
 
             con = self.make_constraint(forward, 'COPY_LOCATION', self.bones.mch.hip_output)
-            self.make_driver(con, 'influence', variables=[(self.bones.ctrl.master, 'body_ik_move_hips')])
+            self.make_driver(con, 'influence',
+                             variables=[(self.bones.ctrl.master, 'body_ik_move_hips')])
 
         else:
             super().rig_mch_ik_forward_bone(i, forward, back, tweak)

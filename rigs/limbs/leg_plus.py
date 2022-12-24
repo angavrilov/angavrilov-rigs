@@ -1,21 +1,15 @@
 import bpy
-
-import re
-import itertools
-import bisect
 import math
 import json
 
+from typing import Optional
 from mathutils import Vector
 
+from rigify.rig_ui_template import PanelLayout
 from rigify.utils.animation import add_fk_ik_snap_buttons
 from rigify.utils.naming import make_derived_name
 from rigify.utils.bones import put_bone
 from rigify.utils.mechanism import driver_var_transform
-from rigify.utils.misc import map_list, map_apply
-
-from rigify.base_rig import stage
-from itertools import count, repeat
 
 from rigify.rigs.limbs import leg, limb_rigs
 
@@ -25,6 +19,8 @@ DEG_360 = math.pi * 2
 
 class Rig(leg.Rig):
     """Human leg rig extensions."""
+
+    use_toe_roll: bool
 
     def initialize(self):
         super().initialize()
@@ -116,7 +112,7 @@ class Rig(leg.Rig):
     # Settings
 
     @classmethod
-    def add_parameters(self, params):
+    def add_parameters(cls, params):
         super().add_parameters(params)
 
         params.extra_toe_roll = bpy.props.BoolProperty(
@@ -126,10 +122,10 @@ class Rig(leg.Rig):
         )
 
     @classmethod
-    def parameters_ui(self, layout, params):
+    def parameters_ui(cls, layout, params, end='Foot'):
         layout.prop(params, 'extra_toe_roll')
 
-        super().parameters_ui(layout, params)
+        super().parameters_ui(layout, params, end=end)
 
 
 def create_sample(obj):
@@ -177,23 +173,26 @@ class RigifyLegRollIk2FkBase(RigifyLimbIk2FkBase):
             heel_bone = obj.pose.bones[self.heel_control]
             foot_bone = ctrl_bones[-1]
 
-            # Relative rotation of heel from orientation of master IK control to actual foot orientation
+            # Relative rotation of heel from orientation of master IK control
+            # to actual foot orientation.
             heel_rest = convert_pose_matrix_via_rest_delta(ctrl_matrix, foot_bone, heel_bone)
             heel_rot = convert_pose_matrix_via_rest_delta(foot_matrix, ik_bones[-1], heel_bone)
 
             # Decode the euler decomposition mode
-            rotmode = heel_bone.rotation_mode
-            indices, usemap = self.MODES[rotmode]
-            use_roll = [ self.use_roll[i] for i in usemap ]
+            rot_mode = heel_bone.rotation_mode
+            indices, use_map = self.MODES[rot_mode]
+            use_roll = [self.use_roll[i] for i in use_map]
             roll, turn = indices
 
             # If the last rotation (yaw) is unused, move it to be first for better result
             if not use_roll[turn]:
-                rotmode = rotmode[1:] + rotmode[0:1]
+                rot_mode = rot_mode[1:] + rot_mode[0:1]
 
-            local_rot = (heel_rest.inverted() @ heel_rot).to_euler(rotmode)
+            local_rot = (heel_rest.inverted() @ heel_rot).to_euler(rot_mode)
 
-            heel_bone.rotation_euler = [ (val if use else 0) for val, use in zip(local_rot, use_roll) ]
+            heel_bone.rotation_euler = [
+                (val if use else 0) for val, use in zip(local_rot, use_roll)
+            ]
 
             if self.keyflags is not None:
                 keyframe_transform_properties(
@@ -206,7 +205,7 @@ class RigifyLegRollIk2FkBase(RigifyLimbIk2FkBase):
 
                 # Compute relative rotation of heel determined by toe
                 heel_rot_toe = convert_pose_matrix_via_rest_delta(toe_matrix, toe_bone, heel_bone)
-                toe_rot = (heel_rest.inverted() @ heel_rot_toe).to_euler(rotmode)
+                toe_rot = (heel_rest.inverted() @ heel_rot_toe).to_euler(rot_mode)
 
                 # Determine how much of the already computed heel rotation seems to be applied
                 heel_rot = list(heel_bone.rotation_euler)
@@ -222,7 +221,8 @@ class RigifyLegRollIk2FkBase(RigifyLimbIk2FkBase):
                 if val < 1e-5:
                     val = 0.0
 
-                set_custom_property_value(obj, heel_bone.name, 'Toe_Roll', val, keyflags=self.keyflags)
+                set_custom_property_value(
+                    obj, heel_bone.name, 'Toe_Roll', val, keyflags=self.keyflags)
 
     def draw(self, context):
         row = self.layout.row(align=True)
@@ -231,29 +231,36 @@ class RigifyLegRollIk2FkBase(RigifyLimbIk2FkBase):
         row.prop(self, 'use_roll', index=1, text="Roll", toggle=True)
         row.prop(self, 'use_roll', index=2, text="Yaw", toggle=True)
 
-class POSE_OT_rigify_leg_roll_ik2fk(RigifyLegRollIk2FkBase, RigifySingleUpdateMixin, bpy.types.Operator):
+class POSE_OT_rigify_leg_roll_ik2fk(
+        RigifyLegRollIk2FkBase, RigifySingleUpdateMixin, bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
     bl_idname = "pose.rigify_leg_roll_ik2fk_" + rig_id
     bl_label = "Snap IK->FK With Roll"
-    bl_description = "Snap the IK chain to FK result, using foot roll to preserve the current IK control orientation as much as possible"
+    bl_description = "Snap the IK chain to FK result, using foot roll to preserve the current IK "
+                     "control orientation as much as possible"
 
     def invoke(self, context, event):
         self.init_invoke(context)
         return self.execute(context)
 
-class POSE_OT_rigify_leg_roll_ik2fk_bake(RigifyLegRollIk2FkBase, RigifyBakeKeyframesMixin, bpy.types.Operator):
+class POSE_OT_rigify_leg_roll_ik2fk_bake(
+        RigifyLegRollIk2FkBase, RigifyBakeKeyframesMixin, bpy.types.Operator):
     bl_idname = "pose.rigify_leg_roll_ik2fk_bake_" + rig_id
     bl_label = "Apply Snap IK->FK To Keyframes"
-    bl_description = "Snap the IK chain keyframes to FK result, using foot roll to preserve the current IK control orientation  as much as possible"
+    bl_description = "Snap the IK chain keyframes to FK result, using foot roll to preserve the "
+                     "current IK control orientation  as much as possible"
 
     def execute_scan_curves(self, context, obj):
         self.bake_add_bone_frames(self.fk_bone_list, TRANSFORM_PROPS_ALL)
         self.bake_add_bone_frames(self.ctrl_bone_list[-1:], TRANSFORM_PROPS_ROTATION)
-        return self.bake_get_all_bone_curves(self.ctrl_bone_list + self.extra_ctrl_list, TRANSFORM_PROPS_ALL)
+        return self.bake_get_all_bone_curves(
+            self.ctrl_bone_list + self.extra_ctrl_list, TRANSFORM_PROPS_ALL)
 ''']
 
 
-def add_leg_snap_ik_to_fk(panel, *, master=None, fk_bones=[], ik_bones=[], tail_bones=[], ik_ctrl_bones=[], ik_extra_ctrls=[], heel_control, rig_name=''):
+def add_leg_snap_ik_to_fk(panel: PanelLayout, *, master: Optional[str] = None,
+                          fk_bones=(), ik_bones=(), tail_bones=(),
+                          ik_ctrl_bones=(), ik_extra_ctrls=(), heel_control, rig_name=''):
     panel.use_bake_settings()
     panel.script.add_utilities(SCRIPT_UTILITIES_OP_SNAP_IK_FK)
     panel.script.register_classes(SCRIPT_REGISTER_OP_SNAP_IK_FK)

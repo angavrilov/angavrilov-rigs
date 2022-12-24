@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,43 +14,38 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
 
-import bpy
-import json
-
 from math import pi
-from itertools import count, repeat, chain
 from mathutils import Vector
 
-from rigify.utils.rig import connected_children_names
 from rigify.utils.animation import add_generic_snap_fk_to_ik
 from rigify.utils.bones import is_connected_position
-from rigify.utils.naming import strip_org, make_derived_name
-from rigify.utils.misc import map_list
+from rigify.utils.naming import make_derived_name
 from rigify.utils.switch_parent import SwitchParentBuilder
 from rigify.utils.widgets_basic import create_shoulder_widget
 
-from rigify.base_rig import stage, BaseRig
-from rigify.base_generate import SubstitutionRig
+from rigify.base_rig import stage
+
+from .limb_rigs import BaseBodyIkLimbParentRig, BaseBodyIkArmRig
 
 
-class Rig(BaseRig):
-    "Shoulder bone with Body IK support."
+class Rig(BaseBodyIkLimbParentRig):
+    """Shoulder bone with Body IK support."""
 
     def find_org_bones(self, pose_bone):
         return pose_bone.name
 
-    def initialize(self):
-        from . import limb_rigs
+    arm_rig: BaseBodyIkArmRig
 
+    def initialize(self):
         super().initialize()
 
         arms = [
             child for child in self.rigify_children
-            if isinstance(child, limb_rigs.BaseBodyIkArmRig)
+            if isinstance(child, BaseBodyIkArmRig)
         ]
 
         if len(arms) != 1:
@@ -61,22 +56,22 @@ class Rig(BaseRig):
         if not is_connected_position(self.obj, self.bones.org, self.arm_rig.bones.org.main[0]):
             self.raise_error('The shoulder bone and arm chain must be in a connected position.')
 
-
     ####################################################
     # BONES
-    #
-    # ctrl:
-    #   master:
-    #     Main control
-    # mch:
-    #   ik[], ik_tgt:
-    #     IK chain and target.
-    # org:
-    #   Original bone.
-    # deform:
-    #   Deform bone.
-    #
-    ####################################################
+
+    class CtrlBones(BaseBodyIkLimbParentRig.CtrlBones):
+        master: str                    # Main control
+
+    class MchBones(BaseBodyIkLimbParentRig.MchBones):
+        ik: list[str]                  # IK chain
+        ik_tgt: str                    # IK target
+
+    bones: BaseBodyIkLimbParentRig.ToplevelBones[
+        str,
+        'Rig.CtrlBones',
+        'Rig.MchBones',
+        str
+    ]
 
     ####################################################
     # Control bone
@@ -97,7 +92,8 @@ class Rig(BaseRig):
 
         master = self.bones.ctrl.master
         arm_controls = self.arm_rig.get_snap_body_ik_controls()
-        panel = self.script.panel_with_selected_check(self, self.bones.ctrl.flatten() + arm_controls)
+        panel = self.script.panel_with_selected_check(
+            self, self.bones.ctrl.flatten() + arm_controls)
 
         add_generic_snap_fk_to_ik(
             panel,
@@ -121,7 +117,8 @@ class Rig(BaseRig):
 
     @stage.generate_bones
     def make_deform_bone(self):
-        self.bones.deform = self.copy_bone(self.bones.org, make_derived_name(self.bones.org, 'def'))
+        self.bones.deform = self.copy_bone(
+            self.bones.org, make_derived_name(self.bones.org, 'def'))
 
     @stage.parent_bones
     def parent_deform_bone(self):
@@ -139,11 +136,11 @@ class Rig(BaseRig):
         self.make_driver(con, 'influence', variables=[(self.bones.mch.ik_tgt, 'influence')])
 
     def get_body_ik_safe_parent_bone(self):
-        "Parent bone for Body IK child limbs that doesn't depend on the IK"
+        """Parent bone for Body IK child limbs that doesn't depend on the IK"""
         return self.bones.ctrl.master
 
     def get_body_ik_final_parent_bone(self):
-        "Parent bone for Body IK child limbs that does depend on the IK"
+        """Parent bone for Body IK child limbs that does depend on the IK"""
         return self.bones.org
 
     ####################################################
@@ -152,7 +149,8 @@ class Rig(BaseRig):
     @stage.generate_bones
     def make_ik_mch_chain(self):
         org = self.bones.org
-        self.bones.mch.ik_tgt = self.copy_bone(org, make_derived_name(org, 'mch', '.ik_tgt'), scale=1/5)
+        self.bones.mch.ik_tgt = self.copy_bone(
+            org, make_derived_name(org, 'mch', '.ik_tgt'), scale=1/5)
         mch1 = self.copy_bone(org, make_derived_name(org, 'mch', '.ik'))
         mch2 = self.copy_bone(org, make_derived_name(org, 'mch', '.ik_end'))
         bone1 = self.get_bone(mch1)
@@ -161,7 +159,7 @@ class Rig(BaseRig):
         bone2.tail = bone2.head + Vector((1, 0, 0))
         bone1.roll = bone2.roll = 0
         bone2.use_inherit_scale = False
-        self.bones.mch.ik = [ mch1, mch2 ]
+        self.bones.mch.ik = [mch1, mch2]
 
     @stage.parent_bones
     def parent_ik_mch_chain(self):
@@ -185,8 +183,7 @@ class Rig(BaseRig):
 
         self.rig_ik_system(mch.ik[0], mch.ik[1],  mch.ik_tgt, self.bones.ctrl.master)
 
-    def rig_ik_system(self, mch_base, mch_ik, mch_tgt, ctrl):
-        mch = self.bones.mch
+    def rig_ik_system(self, mch_base: str, mch_ik: str, mch_tgt: str, ctrl: str):
         self.make_constraint(mch_base, 'COPY_LOCATION', ctrl)
         self.make_constraint(mch_base, 'DAMPED_TRACK', ctrl, head_tail=1)
         self.make_constraint(mch_base, 'COPY_SCALE', ctrl)

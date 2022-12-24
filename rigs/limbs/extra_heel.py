@@ -1,18 +1,16 @@
 import bpy
 
-import re
-import itertools
-import bisect
-import math
+from typing import Any, Callable, Iterable
+from mathutils import Matrix
 
 from rigify.utils.rig import connected_children_names, is_rig_base_bone
 from rigify.utils.naming import make_derived_name
-from rigify.utils.bones import BoneDict, put_bone, align_bone_roll, align_bone_orientation
+from rigify.utils.bones import BoneDict, align_bone_roll, align_bone_orientation, TypedBoneDict
 from rigify.utils.mechanism import make_property
-from rigify.utils.misc import map_list, map_apply
+from rigify.utils.misc import map_list
 
 from rigify.base_rig import stage, BaseRig, RigComponent
-from itertools import count, repeat
+from itertools import count
 
 from rigify.rigs.limbs import leg
 
@@ -34,6 +32,10 @@ class Rig(BaseRig):
 
         return bones
 
+    rigify_parent: leg.Rig
+
+    leg_link: 'ExtraHeelLinkComponent'
+
     def initialize(self):
         orgs = self.bones.org.main
 
@@ -48,6 +50,31 @@ class Rig(BaseRig):
 
         self.leg_link = self.instantiate_link()
 
+    ####################################################
+    # BONES
+
+    class OrgBones(TypedBoneDict):
+        main: list[str]                # Main bone chain
+        heel: str                      # Heel bone
+
+    class CtrlBones(BaseRig.CtrlBones):
+        pass
+
+    class MchBones(BaseRig.MchBones):
+        heel: list[str]                # Chain of bones implementing foot roll.
+        toe_ik_socket: str             # Dynamic socket for the toe in IK mode.
+        toe_fk_socket: str             # Dynamic socket for the toe in FK mode.
+
+    bones: BaseRig.ToplevelBones[
+        'Rig.OrgBones',
+        'Rig.CtrlBones',
+        'Rig.MchBones',
+        list[str]
+    ]
+
+    ####################################################
+    # Initialization
+
     def instantiate_link(self):
         for item in self.rigify_parent.rigify_sub_objects:
             if isinstance(item, ExtraHeelLinkComponent):
@@ -55,12 +82,17 @@ class Rig(BaseRig):
         else:
             return ExtraHeelLinkComponent(self.rigify_parent)
 
+    foot_scale: float
+    foot_bend_matrix: Matrix
+    toe_bend_matrix: Matrix
+    toe_ik_socket_matrix: Matrix
+
     def prepare_bones(self):
         orgs = self.bones.org.main
         parent_orgs = self.rigify_parent.bones.org.main
 
-        for org, porg in zip(orgs, parent_orgs[2:]):
-            align_bone_roll(self.obj, org, porg)
+        for org, parent_org in zip(orgs, parent_orgs[2:]):
+            align_bone_roll(self.obj, org, parent_org)
 
         self.foot_scale = self.calc_foot_scale(orgs, parent_orgs)
         self.foot_bend_matrix = self.calc_foot_bend_matrix(orgs, parent_orgs)
@@ -71,39 +103,39 @@ class Rig(BaseRig):
     # Utilities
 
     def get_enabled_ref(self):
-        return (self.bones.org.main[0], 'enabled')
+        return self.bones.org.main[0], 'enabled'
 
-    def calc_foot_scale(self, orgs, parent_orgs):
+    def calc_foot_scale(self, orgs: list[str], parent_orgs: list[str]):
         foot_bone = self.get_bone(orgs[0])
-        pfoot_bone = self.get_bone(parent_orgs[2])
-        return foot_bone.length / pfoot_bone.length
+        parent_foot_bone = self.get_bone(parent_orgs[2])
+        return foot_bone.length / parent_foot_bone.length
 
-    def calc_foot_bend_matrix(self, orgs, parent_orgs):
+    def calc_foot_bend_matrix(self, orgs: list[str], parent_orgs: list[str]):
         foot_bone = self.get_bone(orgs[0])
-        pfoot_bone = self.get_bone(parent_orgs[2])
-        return pfoot_bone.matrix.inverted() @ foot_bone.matrix * self.foot_scale
+        parent_foot_bone = self.get_bone(parent_orgs[2])
+        return parent_foot_bone.matrix.inverted() @ foot_bone.matrix * self.foot_scale
 
-    def calc_toe_bend_matrix(self, orgs, parent_orgs):
+    def calc_toe_bend_matrix(self, orgs: list[str], parent_orgs: list[str]):
         foot_bone = self.get_bone(orgs[0])
         toe_bone = self.get_bone(orgs[1])
-        pfoot_bone = self.get_bone(parent_orgs[2])
-        ptoe_bone = self.get_bone(parent_orgs[3])
+        parent_foot_bone = self.get_bone(parent_orgs[2])
+        parent_toe_bone = self.get_bone(parent_orgs[3])
 
         my_toe_bend = foot_bone.matrix.inverted() @ toe_bone.matrix
-        adj_toe_bend = ptoe_bone.matrix.inverted() @ pfoot_bone.matrix @ my_toe_bend
+        adj_toe_bend = parent_toe_bone.matrix.inverted() @ parent_foot_bone.matrix @ my_toe_bend
 
         return adj_toe_bend * (1 / self.foot_scale)
 
-    def calc_toe_ik_socket_matrix(self, orgs, parent_orgs):
+    def calc_toe_ik_socket_matrix(self, orgs: list[str], parent_orgs: list[str]):
         toe_bone = self.get_bone(orgs[1])
-        ptoe_bone = self.get_bone(parent_orgs[3])
+        parent_toe_bone = self.get_bone(parent_orgs[3])
         roll_matrix = self.rigify_parent.roll_matrix.to_4x4()
 
-        matrix = toe_bone.matrix @ ptoe_bone.matrix.inverted() @ roll_matrix
+        matrix = toe_bone.matrix @ parent_toe_bone.matrix.inverted() @ roll_matrix
         matrix.translation = toe_bone.head
         return matrix
 
-    def align_to_parent_foot(self, name):
+    def align_to_parent_foot(self, name: str):
         bone = self.get_bone(name)
         pbone = self.get_bone(self.rigify_parent.bones.org.main[2])
         length = bone.length
@@ -125,14 +157,14 @@ class Rig(BaseRig):
         parent_foot = self.rigify_parent.bones.org.main[2]
         self.align_roll_result_bone(chain[-1], orgs[0], parent_foot)
 
-    def make_roll_mch_bones(self, foot, toe, heel):
+    def make_roll_mch_bones(self, foot: str, toe: str, heel: str):
         return self.rigify_parent.make_roll_mch_bones(foot, toe, heel)
 
-    def align_roll_result_bone(self, name, foot, parent_foot):
+    def align_roll_result_bone(self, name: str, _foot: str, parent_foot: str):
         align_bone_orientation(self.obj, name, parent_foot)
-        #foot_bone = self.get_bone(foot)
-        #pfoot_bone = self.get_bone(parent_foot)
-        #put_bone(self.obj, name, foot_bone.head, matrix=pfoot_bone.matrix)
+        # foot_bone = self.get_bone(foot)
+        # parent_foot_bone = self.get_bone(parent_foot)
+        # put_bone(self.obj, name, foot_bone.head, matrix=parent_foot_bone.matrix)
 
     @stage.parent_bones
     def parent_roll_mch_chain(self):
@@ -147,13 +179,13 @@ class Rig(BaseRig):
         self.rig_roll_mch_bones(chain, ctrl, self.bones.org.heel)
 
         foot = self.bones.org.main[0]
-        pfoot = self.rigify_parent.bones.org.main[2]
-        self.rotate_roll_result_bone(chain[-1], foot, pfoot)
+        parent_foot = self.rigify_parent.bones.org.main[2]
+        self.rotate_roll_result_bone(chain[-1], foot, parent_foot)
 
-    def rig_roll_mch_bones(self, chain, ctrl_heel, org_heel):
+    def rig_roll_mch_bones(self, chain: list[str], ctrl_heel: str, org_heel: str):
         self.rigify_parent.rig_roll_mch_bones(chain, ctrl_heel, org_heel)
 
-    def rotate_roll_result_bone(self, name, foot, parent_foot):
+    def rotate_roll_result_bone(self, name: str, _foot: str, _parent_foot: str):
         bone = self.get_bone(name)
         bone.rotation_mode = 'QUATERNION'
         bone.matrix_basis = self.foot_bend_matrix
@@ -165,8 +197,10 @@ class Rig(BaseRig):
     @stage.generate_bones
     def make_toe_socket_bones(self):
         org_toe = self.bones.org.main[1]
-        self.bones.mch.toe_fk_socket = self.copy_bone(org_toe, make_derived_name(org_toe, 'mch', '_fk_socket'), scale=0.5)
-        self.bones.mch.toe_ik_socket = self.copy_bone(org_toe, make_derived_name(org_toe, 'mch', '_ik_socket'), scale=0.5)
+        self.bones.mch.toe_fk_socket = self.copy_bone(
+            org_toe, make_derived_name(org_toe, 'mch', '_fk_socket'), scale=0.5)
+        self.bones.mch.toe_ik_socket = self.copy_bone(
+            org_toe, make_derived_name(org_toe, 'mch', '_ik_socket'), scale=0.5)
 
         if not self.rigify_parent.use_ik_toe:
             self.get_bone(self.bones.mch.toe_ik_socket).matrix = self.toe_ik_socket_matrix
@@ -194,10 +228,10 @@ class Rig(BaseRig):
         orgs = self.bones.org.main
         parent_orgs = self.rigify_parent.bones.org.main
 
-        for i, org, porg in zip(count(0), orgs, parent_orgs[2:]):
-            self.rig_org_bone(i, org, porg)
+        for i, org, parent_org in zip(count(0), orgs, parent_orgs[2:]):
+            self.rig_org_bone(i, org, parent_org)
 
-    def rig_org_bone(self, i, org, parent_org):
+    def rig_org_bone(self, i: int, org: str, parent_org: str):
         self.make_constraint(org, 'COPY_TRANSFORMS', parent_org)
 
         if i == 0:
@@ -213,7 +247,7 @@ class Rig(BaseRig):
     def make_deform_chain(self):
         self.bones.deform = map_list(self.make_deform_bone, count(0), self.bones.org.main)
 
-    def make_deform_bone(self, i, org):
+    def make_deform_bone(self, _i: int, org: str):
         return self.copy_bone(org, make_derived_name(org, 'def'), parent=False)
 
     @stage.parent_bones
@@ -226,7 +260,7 @@ class Rig(BaseRig):
         for i, deform, org in zip(count(0), self.bones.deform, self.bones.org.main):
             self.rig_deform_bone(i, deform, org)
 
-    def rig_deform_bone(self, i, deform, org):
+    def rig_deform_bone(self, i: int, deform: str, _org: str):
         if i == 0:
             parent_def = self.rigify_parent.bones.deform[-2]
             self.make_constraint(deform, 'COPY_TRANSFORMS', parent_def)
@@ -239,18 +273,18 @@ class Rig(BaseRig):
             toe_org = self.bones.org.main[1]
             self.make_constraint(
                 deform, 'STRETCH_TO', toe_org, keep_axis='SWING_Y',
-                rest_length = self.get_bone(deform).bone.length,
+                rest_length=self.get_bone(deform).bone.length,
             )
 
     ####################################################
     # Settings
 
     @classmethod
-    def add_parameters(self, params):
+    def add_parameters(cls, params):
         pass
 
     @classmethod
-    def parameters_ui(self, layout, params):
+    def parameters_ui(cls, layout, params):
         bone = bpy.context.active_pose_bone
 
         if bone and 'enabled' in bone:
@@ -265,13 +299,22 @@ class Rig(BaseRig):
 class ExtraHeelLinkComponent(RigComponent):
     rigify_sub_object_run_late = True
 
-    def __init__(self, owner):
+    owner: leg.Rig
+
+    heel_rigs: list[Rig]
+    is_body_ik: bool
+
+    toe_fk_socket: str
+    toe_ik_socket: str
+
+    def __init__(self, owner: leg.Rig):
         super().__init__(owner)
 
         self.heel_rigs = [rig for rig in owner.rigify_children if isinstance(rig, Rig)]
 
-        self.is_body_ik = hasattr(self.owner, 'use_middle_ik_parent_mch')
-        if self.is_body_ik:
+        from angavrilov_rigs.rigs.body_ik.limb_rigs import BaseBodyIkLimbRig
+
+        if isinstance(self.owner, BaseBodyIkLimbRig):
             self.owner.use_middle_ik_parent_mch = True
 
     ####################################################
@@ -288,7 +331,7 @@ class ExtraHeelLinkComponent(RigComponent):
         for rig in reversed(self.heel_rigs):
             self.rig_ik_target_link(rig, mch_target, idx)
 
-    def rig_ik_target_link(self, rig, mch_target, idx):
+    def rig_ik_target_link(self, rig: Rig, mch_target: str, idx: int):
         con = self.make_constraint(
             mch_target, 'COPY_TRANSFORMS', rig.bones.mch.heel[-1], insert_index=idx
         )
@@ -304,7 +347,7 @@ class ExtraHeelLinkComponent(RigComponent):
         for rig in self.heel_rigs:
             self.rig_fk_foot_parent_link(rig, foot_parent)
 
-    def rig_fk_foot_parent_link(self, rig, mch_parent):
+    def rig_fk_foot_parent_link(self, rig: Rig, mch_parent: str):
         con = self.make_constraint(
             mch_parent, 'COPY_TRANSFORMS', rig.bones.mch.heel[-1],
             space='LOCAL', mix_mode='AFTER_SPLIT',
@@ -317,8 +360,10 @@ class ExtraHeelLinkComponent(RigComponent):
     @stage.generate_bones
     def make_toe_socket_bones(self):
         org_toe = self.owner.bones.org.main[3]
-        self.toe_fk_socket = self.copy_bone(org_toe, make_derived_name(org_toe, 'mch', '_fk_socket'), scale=0.5)
-        self.toe_ik_socket = self.copy_bone(org_toe, make_derived_name(org_toe, 'mch', '_ik_socket'), scale=0.5)
+        self.toe_fk_socket = self.copy_bone(
+            org_toe, make_derived_name(org_toe, 'mch', '_fk_socket'), scale=0.5)
+        self.toe_ik_socket = self.copy_bone(
+            org_toe, make_derived_name(org_toe, 'mch', '_ik_socket'), scale=0.5)
 
     @stage.parent_bones
     def parent_fk_toe_socket_bones(self):
@@ -333,15 +378,15 @@ class ExtraHeelLinkComponent(RigComponent):
     @stage.rig_bones
     def rig_fk_toe_parent_bone(self):
         toe_parent = self.owner.bones.mch.fk[3]
-        conlist = self.get_bone(toe_parent).constraints
+        con_list = self.get_bone(toe_parent).constraints
 
         if not self.owner.use_ik_toe:
             out = self.owner.get_mch_heel_toe_output()
             idx = find_index(
-                conlist,
+                con_list,
                 lambda con: con.type == 'COPY_TRANSFORMS' and con.subtarget == out
             )
-            conlist[idx].subtarget = self.toe_ik_socket
+            con_list[idx].subtarget = self.toe_ik_socket
 
         self.make_constraint(
             toe_parent, 'COPY_TRANSFORMS', self.toe_fk_socket,
@@ -355,14 +400,14 @@ class ExtraHeelLinkComponent(RigComponent):
         for rig in self.heel_rigs:
             self.rig_toe_ik_socket_link(rig, self.toe_ik_socket)
 
-    def rig_toe_fk_socket_link(self, rig, mch_socket):
+    def rig_toe_fk_socket_link(self, rig: Rig, mch_socket: str):
         con = self.make_constraint(
             mch_socket, 'COPY_TRANSFORMS', rig.bones.mch.toe_fk_socket,
             space='LOCAL', mix_mode='AFTER_SPLIT',
         )
         self.make_driver(con, 'enabled', variables=[rig.get_enabled_ref()])
 
-    def rig_toe_ik_socket_link(self, rig, mch_socket):
+    def rig_toe_ik_socket_link(self, rig: Rig, mch_socket: str):
         con = self.make_constraint(
             mch_socket, 'COPY_TRANSFORMS', rig.bones.mch.toe_ik_socket,
         )
@@ -373,20 +418,23 @@ class ExtraHeelLinkComponent(RigComponent):
 
     @stage.rig_bones
     def rig_body_ik_parent_bones(self):
-        if self.is_body_ik:
+        from angavrilov_rigs.rigs.body_ik.limb_rigs import BaseBodyIkLimbRig
+
+        if isinstance(self.owner, BaseBodyIkLimbRig):
             parents = self.owner.bones.mch.ik_mid_parents
             for i, parent in enumerate(parents):
                 self.rig_body_ik_parent_bone(i, parent)
 
-    def rig_body_ik_parent_bone(self, i, parent):
+    def rig_body_ik_parent_bone(self, i: int, parent: str):
         # Foot parent
         if i == 0:
-            pconlist = self.get_bone(parent).constraints
+            parent_con_list = self.get_bone(parent).constraints
 
             # Remove redundant scale
-            for con in list(pconlist):
-                if con.type == 'COPY_SCALE' and con.subtarget in ('root', self.owner.bones.ctrl.master):
-                    pconlist.remove(con)
+            for con in list(parent_con_list):
+                if con.type == 'COPY_SCALE' and\
+                        con.subtarget in ('root', self.owner.bones.ctrl.master):
+                    parent_con_list.remove(con)
 
             self.make_constraint(
                 parent, 'COPY_TRANSFORMS', self.owner.bones.mch.fk[2],
@@ -401,8 +449,8 @@ class ExtraHeelLinkComponent(RigComponent):
             )
 
 
-def find_index(list, test):
-    for i, item in enumerate(list):
+def find_index(seq: Iterable[Any], test: Callable[[Any], bool]):
+    for i, item in enumerate(seq):
         if test(item):
             return i
     else:
@@ -435,7 +483,6 @@ def create_sample(obj):
     bone.use_connect = False
     bone.parent = arm.edit_bones[bones['foot-extra.L']]
     bones['heel-extra.L'] = bone.name
-
 
     bpy.ops.object.mode_set(mode='OBJECT')
     pbone = obj.pose.bones[bones['foot-extra.L']]
@@ -474,8 +521,12 @@ def create_sample(obj):
         arm.edit_bones.active = bone
 
     for eb in arm.edit_bones:
-        eb.layers = (False, False, False, False, False, False, False, False, False, False, False, False, False, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False)
+        eb.layers = (False, False, False, False, False, False, False, False, False, False, False,
+                     False, False, True, False, False, False, False, False, False, False, False,
+                     False, False, False, False, False, False, False, False, False, False)
 
-    arm.layers = (False, False, False, False, False, False, False, False, False, False, False, False, False, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False)
+    arm.layers = (False, False, False, False, False, False, False, False, False, False, False,
+                  False, False, True, False, False, False, False, False, False, False, False,
+                  False, False, False, False, False, False, False, False, False, False)
 
     return bones

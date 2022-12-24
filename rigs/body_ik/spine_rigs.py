@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,39 +14,38 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
 
-import bpy
-import json
-
 from math import pi
-from itertools import count, repeat, chain
+from itertools import count, chain
 from mathutils import Vector
 
-from rigify.utils.animation import SCRIPT_UTILITIES_BAKE
-from rigify.utils.naming import strip_org, make_derived_name
+from rigify.rig_ui_template import PanelLayout
+from rigify.utils.naming import make_derived_name
 from rigify.utils.misc import map_list
-from rigify.utils.bones import put_bone, set_bone_widget_transform
+from rigify.utils.bones import put_bone
 from rigify.utils.mechanism import driver_var_distance
 
 from rigify.base_rig import stage
 
 from rigify.rigs.spines import spine_rigs
 
+from .limb_rigs import BaseBodyIkLimbParentRig, BaseBodyIkLegRig
 
-class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
+
+class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig, BaseBodyIkLimbParentRig):
+    leg_rigs: list[BaseBodyIkLegRig]
+
     def initialize(self):
-        from . import limb_rigs
-
         super().initialize()
 
         orgs = self.bones.org
 
         legs = [
             child for child in self.rigify_children
-            if (isinstance(child, limb_rigs.BaseBodyIkLegRig) and
+            if (isinstance(child, BaseBodyIkLegRig) and
                 self.get_bone_parent(child.bones.org.main[0]) == orgs[0])
         ]
 
@@ -57,20 +56,21 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
 
     ####################################################
     # BONES
-    #
-    # mch:
-    #   hip_output:
-    #     Output of hip IK correction.
-    #   hip_offset:
-    #     Global position represents the offset applied by Hip IK.
-    #   tweak_offsets[]:
-    #     Offset bones used as parents for the tweak controls.
-    #   leg_offset[]:
-    #     Offset bones between leg base and hip base.
-    #   hip_ik[], hip_ik_tgt:
-    #     Chain for solving the two point limit distance problem.
-    #
-    ####################################################
+
+    class MchBones(spine_rigs.BaseSpineRig.MchBones):
+        hip_output: str                # Output of hip IK correction.
+        hip_offset: str                # Global position represents the offset applied by Hip IK.
+        tweak_offset: list[str]       # Offset bones used as parents for the tweak controls.
+        leg_offset: list[str]          # Offset bones between leg base and hip base.
+        hip_ik: list[str]              # Chain for solving the two point limit distance problem.
+        hip_ik_tgt: str                # Target for two point IK
+
+    bones: spine_rigs.BaseSpineRig.ToplevelBones[
+        list[str],
+        'BaseBodyIkSpineRig.CtrlBones',
+        'BaseBodyIkSpineRig.MchBones',
+        list[str]
+    ]
 
     ####################################################
     # Master control bone
@@ -79,13 +79,15 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
     def configure_master_control(self):
         super().configure_master_control()
 
-        leg_controls = list(chain.from_iterable(leg.get_snap_body_ik_controls() for leg in self.leg_rigs))
+        leg_controls = list(chain.from_iterable(
+            leg.get_snap_body_ik_controls() for leg in self.leg_rigs))
 
-        panel = self.script.panel_with_selected_check(self, self.bones.ctrl.flatten() + leg_controls)
+        panel = self.script.panel_with_selected_check(
+            self, self.bones.ctrl.flatten() + leg_controls)
 
         self.generate_body_ik_panel(panel)
 
-    def generate_body_ik_panel(self, panel):
+    def generate_body_ik_panel(self, panel: PanelLayout):
         add_spine_ik_snap(
             panel,
             master=self.bones.ctrl.master,
@@ -101,9 +103,10 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
 
     @stage.generate_bones
     def make_leg_offset_mch_bones(self):
-        self.bones.mch.leg_offset = map_list(self.make_leg_offset_mch_bone, count(0), self.leg_rigs)
+        self.bones.mch.leg_offset = map_list(
+            self.make_leg_offset_mch_bone, count(0), self.leg_rigs)
 
-    def make_leg_offset_mch_bone(self, i, leg_rig):
+    def make_leg_offset_mch_bone(self, _i: int, leg_rig: BaseBodyIkLegRig):
         org = leg_rig.bones.org.main[0]
         name = self.copy_bone(org, make_derived_name(org, 'mch', '.hip_ik'))
         self.get_bone(name).tail = self.get_bone(self.bones.org[0]).head
@@ -119,7 +122,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         for args in zip(count(0), self.leg_rigs, self.bones.mch.leg_offset):
             self.configure_leg_offset_mch_bone(*args)
 
-    def configure_leg_offset_mch_bone(self, i, leg_rig, mch):
+    def configure_leg_offset_mch_bone(self, _i: int, _leg_rig: BaseBodyIkLegRig, mch: str):
         bone = self.get_bone(mch)
         bone['length'] = 1.0
         bone['influence'] = 0.0
@@ -135,7 +138,8 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
     @stage.generate_bones
     def make_hip_ik_mch_chain(self):
         org = self.bones.org[0]
-        self.bones.mch.hip_ik_tgt = self.copy_bone(org, make_derived_name(org, 'mch', '.hip_ik_tgt'), scale=1/5)
+        self.bones.mch.hip_ik_tgt = self.copy_bone(
+            org, make_derived_name(org, 'mch', '.hip_ik_tgt'), scale=1/5)
         mch1 = self.copy_bone(org, make_derived_name(org, 'mch', '.hip_ik'))
         mch2 = self.copy_bone(org, make_derived_name(org, 'mch', '.hip_ik_end'))
         bone1 = self.get_bone(mch1)
@@ -144,7 +148,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         bone2.tail = bone1.head + Vector((1, 0, 1))
         bone1.roll = bone2.roll = 0
         bone2.use_inherit_scale = False
-        self.bones.mch.hip_ik = [ mch1, mch2 ]
+        self.bones.mch.hip_ik = [mch1, mch2]
 
     @stage.parent_bones
     def parent_hip_ik_mch_chain(self):
@@ -161,20 +165,13 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
             self.rig_hip_ik_mch_bone(*args)
 
         self.make_constraint(mch.hip_ik[0], 'COPY_LOCATION', mch.leg_offset[0], head_tail=1)
-        self.rig_hip_ik_system(mch.hip_ik[0], mch.hip_ik[1], mch.hip_ik_tgt, self.get_pre_hip_ik_result_bone())
+        self.rig_hip_ik_system(
+            mch.hip_ik[0], mch.hip_ik[1], mch.hip_ik_tgt, self.get_pre_hip_ik_result_bone())
 
-    def rig_hip_ik_mch_bone(self, i, mch_ik, mch_in):
+    def rig_hip_ik_mch_bone(self, _i: int, mch_ik: str, mch_in: str):
         self.make_driver(mch_ik, 'scale', index=1, variables=[(mch_in, 'length')])
 
-    def rig_hip_ik_system(self, mch_base, mch_ik, mch_tgt, pole):
-        '''
-        self.make_constraint(mch_base, 'DAMPED_TRACK', pole)
-        self.make_constraint(
-            mch_base, 'LOCKED_TRACK', mch_tgt,
-            lock_axis='LOCK_Y', track_axis='TRACK_X',
-        )
-        '''
-
+    def rig_hip_ik_system(self, _mch_base: str, mch_ik: str, mch_tgt: str, pole: str):
         bone_ik = self.get_bone(mch_ik)
         bone_ik.lock_ik_y = bone_ik.lock_ik_z = True
         bone_ik.use_ik_limit_x = True
@@ -187,7 +184,8 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
             chain_count=2, use_stretch=False,
         )
 
-    def rig_hip_ik_output(self, out, lim_both, lim_in1, lim_in2, dist1, dist2):
+    def rig_hip_ik_output(self, out: str, lim_both: str, lim_in1: str, lim_in2: str,
+                          dist1: str, dist2: str):
         inf_vars = {
             'inf1': (lim_in1, 'influence'),
             'inf2': (lim_in2, 'influence'),
@@ -210,7 +208,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         self.make_driver(con, 'distance', variables=[(lim_in1, 'length')])
         self.make_driver(
             con, 'influence', variables=inf_vars,
-            expression=f'lerp(min(inf1,inf2)*{step_in},1,(inf1-inf2)/(1-inf2) if inf1 > inf2 else 0)'
+            expression=f'lerp(min(inf1,inf2)*{step_in},1,(inf1-inf2)/(1-inf2) if inf1 > inf2 else 0)'  # noqa: E501
         )
 
         con = self.make_constraint(
@@ -220,7 +218,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         self.make_driver(con, 'distance', variables=[(lim_in2, 'length')])
         self.make_driver(
             con, 'influence', variables=inf_vars,
-            expression=f'lerp(min(inf1,inf2)*{step_in},1,(inf2-inf1)/(1-inf1) if inf2 > inf1 else 0)'
+            expression=f'lerp(min(inf1,inf2)*{step_in},1,(inf2-inf1)/(1-inf1) if inf2 > inf1 else 0)'  # noqa: E501
         )
 
     ####################################################
@@ -230,8 +228,10 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
     def make_hip_offset_bones(self):
         org = self.bones.org
         mch = self.bones.mch
-        mch.hip_output = self.copy_bone(org[0], make_derived_name(org[0], 'mch', '.hip_output'), scale=0.25)
-        mch.hip_offset = self.copy_bone(org[0], make_derived_name(org[0], 'mch', '.hip_offset'), scale=0.20)
+        mch.hip_output = self.copy_bone(
+            org[0], make_derived_name(org[0], 'mch', '.hip_output'), scale=0.25)
+        mch.hip_offset = self.copy_bone(
+            org[0], make_derived_name(org[0], 'mch', '.hip_offset'), scale=0.20)
 
     @stage.parent_bones
     def parent_hip_offset_bones(self):
@@ -244,18 +244,20 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         mch = self.bones.mch
 
         self.rig_hip_ik_output(
-            mch.hip_output, mch.hip_ik[1], mch.leg_offset[0], mch.leg_offset[1], mch.hip_ik[0], mch.hip_ik_tgt)
-        self.make_constraint(mch.hip_offset, 'COPY_LOCATION', self.get_hip_offset_base_bone(), invert_xyz=(True,True,True), use_offset=True, space='POSE')
+            mch.hip_output, mch.hip_ik[1], mch.leg_offset[0], mch.leg_offset[1],
+            mch.hip_ik[0], mch.hip_ik_tgt)
+        self.make_constraint(mch.hip_offset, 'COPY_LOCATION', self.get_hip_offset_base_bone(),
+                             invert_xyz=(True, True, True), use_offset=True, space='POSE')
 
     def get_hip_offset_base_bone(self):
         return self.get_pre_hip_ik_result_bone()
 
     def get_body_ik_safe_parent_bone(self):
-        "Parent bone for Body IK child limbs that doesn't depend on the IK"
+        """Parent bone for Body IK child limbs that doesn't depend on the IK"""
         return self.get_pre_hip_ik_result_bone()
 
     def get_body_ik_final_parent_bone(self):
-        "Parent bone for Body IK child limbs that does depend on the IK"
+        """Parent bone for Body IK child limbs that does depend on the IK"""
         return self.bones.mch.hip_output
 
     ####################################################
@@ -274,8 +276,9 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         self.bones.mch.tweak_offset = map_list(
             self.make_tweak_offset_bone, count(1), orgs[1:] + orgs[-1:])
 
-    def make_tweak_offset_bone(self, i, org):
-        name = self.copy_bone(org, make_derived_name(org, 'mch', '.tweak_offset'), parent=False, scale=0.25)
+    def make_tweak_offset_bone(self, i: int, org: str):
+        name = self.copy_bone(org, make_derived_name(org, 'mch', '.tweak_offset'),
+                              parent=False, scale=0.25)
 
         if i == len(self.bones.org):
             put_bone(self.obj, name, self.get_bone(org).tail)
@@ -293,7 +296,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         for i, tweak, offset in zip(count(1), tweak[1:], self.bones.mch.tweak_offset):
             self.parent_tweak_offset_bone(i, tweak, offset, self.get_bone_parent(tweak))
 
-    def parent_tweak_offset_bone(self, i, tweak, offset, tweak_parent):
+    def parent_tweak_offset_bone(self, _i: int, tweak: str, offset: str, tweak_parent: str):
         self.set_bone_parent(tweak, offset)
         self.set_bone_parent(offset, tweak_parent)
 
@@ -302,7 +305,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig):
         for i, offset in zip(count(1), self.bones.mch.tweak_offset):
             self.rig_tweak_offset_bone(i, offset)
 
-    def rig_tweak_offset_bone(self, i, offset):
+    def rig_tweak_offset_bone(self, _i: int, offset: str):
         self.make_constraint(
             offset, 'COPY_LOCATION', self.bones.mch.hip_offset,
             use_offset=True, space='POSE'
@@ -336,15 +339,18 @@ class RigifySpineIkSnapBase:
         matrix = Matrix(obj.pose.bones[self.master_bone].matrix)
         matrix.translation = pos
 
-        set_transform_from_matrix(obj, self.master_bone, matrix, no_rot=True, no_scale=True, keyflags=self.keyflags)
+        set_transform_from_matrix(
+            obj, self.master_bone, matrix, no_rot=True, no_scale=True, keyflags=self.keyflags)
 
-class POSE_OT_rigify_spine_ik_snap(RigifySpineIkSnapBase, RigifySingleUpdateMixin, bpy.types.Operator):
+class POSE_OT_rigify_spine_ik_snap(
+        RigifySpineIkSnapBase, RigifySingleUpdateMixin, bpy.types.Operator):
     bl_idname = "pose.rigify_spine_ik_snap_" + rig_id
     bl_label = "Snap To Hip IK"
     bl_options = {'UNDO', 'INTERNAL'}
     bl_description = "Snap the spine control to corrected Hip IK result"
 
-class POSE_OT_rigify_spine_ik_snap_bake(RigifySpineIkSnapBase, RigifyBakeKeyframesMixin, bpy.types.Operator):
+class POSE_OT_rigify_spine_ik_snap_bake(
+        RigifySpineIkSnapBase, RigifyBakeKeyframesMixin, bpy.types.Operator):
     bl_idname = "pose.rigify_spine_ik_snap_bake_" + rig_id
     bl_label = "Apply Snap To Hip IK To Keyframes"
     bl_options = {'UNDO', 'INTERNAL'}
@@ -355,7 +361,8 @@ class POSE_OT_rigify_spine_ik_snap_bake(RigifySpineIkSnapBase, RigifyBakeKeyfram
         return []
 ''']
 
-def add_spine_ik_snap(panel, *, master=None, result=None, final=None, text=None):
+
+def add_spine_ik_snap(panel: PanelLayout, *, master=None, result=None, final=None, text=None):
     panel.use_bake_settings()
     panel.script.add_utilities(SCRIPT_UTILITIES_OP_SNAP)
     panel.script.register_classes(SCRIPT_REGISTER_OP_SNAP)
@@ -365,5 +372,7 @@ def add_spine_ik_snap(panel, *, master=None, result=None, final=None, text=None)
     }
 
     row = panel.row(align=True)
-    row.operator('pose.rigify_spine_ik_snap_{rig_id}', text=text, icon='SNAP_ON', properties=op_props)
-    row.operator('pose.rigify_spine_ik_snap_bake_{rig_id}', text='', icon='ACTION_TWEAK', properties=op_props)
+    row.operator('pose.rigify_spine_ik_snap_{rig_id}',
+                 text=text, icon='SNAP_ON', properties=op_props)
+    row.operator('pose.rigify_spine_ik_snap_bake_{rig_id}',
+                 text='', icon='ACTION_TWEAK', properties=op_props)

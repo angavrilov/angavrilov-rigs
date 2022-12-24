@@ -1,4 +1,4 @@
-#====================== BEGIN GPL LICENSE BLOCK ======================
+# ====================== BEGIN GPL LICENSE BLOCK ======================
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -14,25 +14,23 @@
 #  along with this program; if not, write to the Free Software Foundation,
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-#======================= END GPL LICENSE BLOCK ========================
+# ======================= END GPL LICENSE BLOCK ========================
 
 # <pep8 compliant>
 
 import bpy
 import math
-import re
 
-from itertools import count, repeat
+from itertools import repeat
 
-from rigify.utils.rig import connected_children_names
-from rigify.utils.bones import put_bone, copy_bone_properties, align_bone_orientation, set_bone_widget_transform
+from rigify.utils.bones import put_bone
 from rigify.utils.mechanism import make_constraint, make_driver, make_property
-from rigify.utils.mechanism import deactivate_custom_properties, reactivate_custom_properties, copy_custom_properties_with_ui
-from rigify.utils.naming import strip_org, make_derived_name
+from rigify.utils.mechanism import deactivate_custom_properties, reactivate_custom_properties,\
+    copy_custom_properties_with_ui
+from rigify.utils.naming import make_derived_name
 from rigify.utils.misc import map_list
-from rigify.utils.widgets import create_widget
 
-from rigify.base_rig import stage, BaseRig
+from rigify.base_rig import stage
 
 from . import basic
 
@@ -53,16 +51,23 @@ class Rig(basic.Rig):
     depend on the first deform bone of this rig.
     """
 
+    cage_obj: bpy.types.Object
+
+    use_shape_anchor: bool
+    use_shape_only_location: bool
+    use_front_anchor: bool
+
     def initialize(self):
         super().initialize()
 
         self.cage_obj = self.params.jiggle_cloth_cage
         if not self.cage_obj:
-            self.report_error('Physics cage object is not specified')
+            self.raise_error('Physics cage object is not specified')
 
         self.use_shape_anchor = self.params.jiggle_shape_anchor is not None
         self.use_shape_only_location = self.params.jiggle_shape_only_location
-        self.use_front_anchor = len(self.bones.org) > 1 and self.params.jiggle_front_anchor is not None
+        self.use_front_anchor = \
+            len(self.bones.org) > 1 and self.params.jiggle_front_anchor is not None
 
     ##############################
     # Cage
@@ -80,8 +85,10 @@ class Rig(basic.Rig):
     def configure_cage(self):
         bone_name = self.bones.ctrl.master if self.use_master_control else self.bones.ctrl.front
 
-        copy_custom_properties_with_ui(self, self.cage_obj, bone_name, prefix='option_', link_driver=True)
-        copy_custom_properties_with_ui(self, self.cage_obj.data, bone_name, prefix='option_', link_driver=True)
+        copy_custom_properties_with_ui(
+            self, self.cage_obj, bone_name, prefix='option_', link_driver=True)
+        copy_custom_properties_with_ui(
+            self, self.cage_obj.data, bone_name, prefix='option_', link_driver=True)
 
     @stage.finalize
     def finalize_cage(self):
@@ -94,6 +101,19 @@ class Rig(basic.Rig):
                 mod.show_render = mod.show_viewport = True
 
     ##############################
+    # BONES
+
+    class MchBones(basic.Rig.MchBones):
+        shape_anchor: list[str]        # Shape anchor system
+
+    bones: basic.Rig.ToplevelBones[
+        list[str],
+        'Rig.CtrlBones',
+        'Rig.MchBones',
+        list[str]
+    ]
+
+    ##############################
     # Shape anchor
 
     @stage.generate_bones
@@ -101,11 +121,13 @@ class Rig(basic.Rig):
         if self.use_shape_anchor:
             org = self.bones.org[0]
             if self.use_shape_only_location:
-                self.bones.mch.shape_anchor = map_list(self.make_mch_shape_anchor_bone, range(2), repeat(org))
+                self.bones.mch.shape_anchor = \
+                    map_list(self.make_mch_shape_anchor_bone, range(2), repeat(org))
             else:
-                self.bones.mch.shape_anchor = map_list(self.make_mch_shape_anchor_bone, range(4), repeat(org))
+                self.bones.mch.shape_anchor = \
+                    map_list(self.make_mch_shape_anchor_bone, range(4), repeat(org))
 
-    def make_mch_shape_anchor_bone(self, i, org):
+    def make_mch_shape_anchor_bone(self, i: int, org: str):
         name = self.copy_bone(org, make_derived_name(org, 'mch', '_shape'+str(i)))
 
         if i == 0 and self.use_shape_only_location:
@@ -129,19 +151,26 @@ class Rig(basic.Rig):
         if self.use_shape_anchor:
             chain = self.bones.mch.shape_anchor
             anchor = self.params.jiggle_shape_anchor
+            deform = self.bones.deform[0]
 
             if self.use_shape_only_location:
-                make_constraint(self.get_bone(chain[0]), 'COPY_LOCATION', anchor, space='WORLD')
+                anchor_bone, offset_bone = chain
 
-                self.make_constraint(chain[1], 'COPY_LOCATION', chain[0], space='LOCAL')
-                self.make_constraint(self.bones.deform[0], 'COPY_LOCATION', chain[0], invert_xyz=(True,True,True), space='LOCAL')
+                make_constraint(self.get_bone(anchor_bone), 'COPY_LOCATION', anchor, space='WORLD')
+
+                self.make_constraint(offset_bone, 'COPY_LOCATION', anchor_bone, space='LOCAL')
+                self.make_constraint(deform, 'COPY_LOCATION', anchor_bone,
+                                     invert_xyz=(True, True, True), space='LOCAL')
             else:
-                make_constraint(self.get_bone(chain[1]), 'CHILD_OF', anchor, inverse_matrix=anchor.matrix_world.inverted())
+                rest_bone, anchor_bone, invert_bone, offset_bone = chain
 
-                self.make_constraint(chain[2], 'COPY_TRANSFORMS', chain[0], space='POSE')
-                self.make_constraint(chain[3], 'COPY_TRANSFORMS', chain[1], space='LOCAL')
+                make_constraint(self.get_bone(anchor_bone), 'CHILD_OF', anchor,
+                                inverse_matrix=anchor.matrix_world.inverted())
 
-                self.make_constraint(self.bones.deform[0], 'COPY_TRANSFORMS', chain[2], space='LOCAL')
+                self.make_constraint(invert_bone, 'COPY_TRANSFORMS', rest_bone, space='POSE')
+                self.make_constraint(offset_bone, 'COPY_TRANSFORMS', anchor_bone, space='LOCAL')
+
+                self.make_constraint(deform, 'COPY_TRANSFORMS', invert_bone, space='LOCAL')
 
     def get_master_parent(self):
         if self.use_shape_anchor:
@@ -160,19 +189,20 @@ class Rig(basic.Rig):
             self.set_bone_parent(self.bones.org[1], None)
             self.generator.disable_auto_parent(self.bones.org[1])
 
-    def rig_front_org_bone(self, org):
+    def rig_front_org_bone(self, org: str):
         if self.use_front_anchor:
             anchor = self.params.jiggle_front_anchor
 
-            make_constraint(self.get_bone(org), 'CHILD_OF', anchor, inverse_matrix=anchor.matrix_world.inverted())
+            make_constraint(self.get_bone(org), 'CHILD_OF', anchor,
+                            inverse_matrix=anchor.matrix_world.inverted())
         else:
-            super().rig_front_org_bone()
+            super().rig_front_org_bone(org)
 
     ##############################
     # UI
 
     @classmethod
-    def add_parameters(self, params):
+    def add_parameters(cls, params):
         super().add_parameters(params)
 
         params.jiggle_cloth_cage = bpy.props.PointerProperty(
@@ -197,7 +227,7 @@ class Rig(basic.Rig):
         )
 
     @classmethod
-    def parameters_ui(self, layout, params):
+    def parameters_ui(cls, layout, params):
         super().parameters_ui(layout, params)
 
         layout.label(text='Cloth Cage Mesh:')
@@ -259,6 +289,7 @@ def create_sample(obj):
     return bones
 
 
+# noinspection PyPep8Naming
 class MESH_OT_rigify_add_jiggle_cloth_cage(bpy.types.Operator):
     bl_idname = 'mesh.rigify_add_jiggle_cloth_cage'
     bl_label = "Add Cloth Cage"
@@ -269,30 +300,35 @@ class MESH_OT_rigify_add_jiggle_cloth_cage(bpy.types.Operator):
     def poll(cls, context):
         return context.object and context.active_pose_bone
 
-    def create_mesh_data(self, mesh, radius, stepsx, stepsy):
+    base_start_idx: int
+    row_size: int
+    row_cnt: int
+    vertex_count: int
+
+    def create_mesh_data(self, mesh: bpy.types.Mesh, radius: float, steps_x: int, steps_y: int):
         vertices = [(0, radius, 0)]
-        steps4 = stepsx * 4
-        stepsy2 = int(stepsy/2)
+        steps_x_4 = steps_x * 4
+        steps_y_2 = int(steps_y / 2)
 
-        self.base_start_idx = 1 + (stepsy-1) * steps4
-        self.row_size = steps4
-        self.row_cnt = stepsy
+        self.base_start_idx = 1 + (steps_y - 1) * steps_x_4
+        self.row_size = steps_x_4
+        self.row_cnt = steps_y
 
-        for i in range(stepsy):
-            for j in range(steps4):
+        for i in range(steps_y):
+            for j in range(steps_x_4):
                 delta = ((j % 2) - 0.5) * 0.1 if i == 0 else 0
-                alpha = (i + 1 + delta) * math.pi / 2 / stepsy
+                alpha = (i + 1 + delta) * math.pi / 2 / steps_y
                 rx = math.sin(alpha) * radius
                 y = math.cos(alpha) * radius
-                beta = j * math.pi / 2 / stepsx
+                beta = j * math.pi / 2 / steps_x
                 x = math.sin(beta) * rx
                 z = math.cos(beta) * rx
                 vertices.append((x, y, z))
 
-        for i in range(stepsy2-1):
-            rx = radius * (stepsy2-1-i) / stepsy2
-            for j in range(steps4):
-                beta = j * math.pi / 2 / stepsx
+        for i in range(steps_y_2-1):
+            rx = radius * (steps_y_2-1-i) / steps_y_2
+            for j in range(steps_x_4):
+                beta = j * math.pi / 2 / steps_x
                 x = math.sin(beta) * rx
                 z = math.cos(beta) * rx
                 vertices.append((x, 0, z))
@@ -304,28 +340,33 @@ class MESH_OT_rigify_add_jiggle_cloth_cage(bpy.types.Operator):
 
         faces = []
 
-        for j in range(0, steps4, 2):
-            faces.append((0, j+1, j+2, 1+(j+2)%steps4))
-            faces.append((last_idx, last_idx-1-j, last_idx-2-j, last_idx-1-(j+2)%steps4))
+        for j in range(0, steps_x_4, 2):
+            faces.append((0, j+1, j+2, 1+(j+2) % steps_x_4))
+            faces.append((last_idx, last_idx-1-j, last_idx-2-j, last_idx-1-(j+2) % steps_x_4))
 
-        for i in range(0, stepsy+stepsy2-2):
-            for j in range(steps4):
-                j1 = (j+1)%steps4
-                faces.append((1 + i*steps4 + j, 1 + (i+1)*steps4 + j, 1 + (i+1)*steps4 + j1, 1 + i*steps4 + j1))
+        for i in range(0, steps_y + steps_y_2 - 2):
+            for j in range(steps_x_4):
+                j1 = (j+1) % steps_x_4
+                faces.append((1 + i*steps_x_4 + j, 1 + (i+1)*steps_x_4 + j,
+                              1 + (i+1)*steps_x_4 + j1, 1 + i*steps_x_4 + j1))
 
         mesh.from_pydata(vertices, [], faces)
         mesh.update()
 
-    def make_up_shape_key(self, obj):
+    @staticmethod
+    def make_up_shape_key(obj: bpy.types.Object):
         sk = obj.shape_key_add(name='Up')
 
         make_driver(sk, 'value', variables=[(obj, obj, 'option_up')])
 
         for item in sk.data:
-            item.co[2] += item.co[1] * 0.2;
+            item.co[2] += item.co[1] * 0.2
 
-    def add_cloth_sim(self, obj, size):
+    @staticmethod
+    def add_cloth_sim(obj: bpy.types.Object, size: float):
         mod = obj.modifiers.new(name='Cloth', type='CLOTH')
+
+        assert isinstance(mod, bpy.types.ClothModifier)
 
         make_driver(mod, 'show_viewport', variables=[(obj, obj, 'option_physics')])
         make_driver(mod, 'show_render', variables=[(obj, obj, 'option_physics')])
@@ -392,7 +433,8 @@ class MESH_OT_rigify_add_jiggle_cloth_cage(bpy.types.Operator):
                 vg.add([i], weight, 'REPLACE')
 
     def make_deform_vgroups(self, obj, pbone):
-        vgp = obj.vertex_groups.new(name="DEF-" + (pbone.parent.name if pbone.parent else 'parent'))
+        parent_name = (pbone.parent.name if pbone.parent else 'parent')
+        vgp = obj.vertex_groups.new(name="DEF-" + parent_name)
         vgb = obj.vertex_groups.new(name="DEF-" + pbone.name)
 
         vgb.add([0], 1.0, 'REPLACE')
@@ -404,7 +446,8 @@ class MESH_OT_rigify_add_jiggle_cloth_cage(bpy.types.Operator):
             vgb.add(verts, factor, 'REPLACE')
             vgp.add(verts, 1-factor, 'REPLACE')
 
-    def add_weight_mix(self, obj, name, dest, src, option):
+    @staticmethod
+    def add_weight_mix(obj, name, dest, src, option):
         mod = obj.modifiers.new(name=name, type='VERTEX_WEIGHT_MIX')
         mod.mix_mode = 'ADD'
         mod.mix_set = 'OR'
@@ -466,11 +509,13 @@ class MESH_OT_rigify_add_jiggle_cloth_cage(bpy.types.Operator):
         context.collection.objects.link(obj)
         context.collection.objects.link(anchor)
 
-        pbone.rigify_parameters.jiggle_cloth_cage = obj
-        pbone.rigify_parameters.jiggle_front_anchor = anchor
+        parameters = pbone.rigify_parameters  # noqa
+        parameters.jiggle_cloth_cage = obj
+        parameters.jiggle_front_anchor = anchor
         return {'FINISHED'}
 
 
+# noinspection PyPep8Naming
 class MESH_OT_rigify_add_jiggle_shapekey_anchor(bpy.types.Operator):
     bl_idname = 'mesh.rigify_add_jiggle_shapekey_anchor'
     bl_label = "Add Shapekey Anchor"
@@ -483,14 +528,16 @@ class MESH_OT_rigify_add_jiggle_shapekey_anchor(bpy.types.Operator):
         if not pbone:
             return False
 
-        cage = pbone.rigify_parameters.jiggle_cloth_cage
-        anchor = pbone.rigify_parameters.jiggle_front_anchor
+        parameters = pbone.rigify_parameters  # noqa
+        cage = parameters.jiggle_cloth_cage
+        anchor = parameters.jiggle_front_anchor
         return cage and anchor and anchor.parent == cage
 
     def execute(self, context):
         pbone = context.active_pose_bone
-        cage = pbone.rigify_parameters.jiggle_cloth_cage
-        anchor = pbone.rigify_parameters.jiggle_front_anchor
+        parameters = pbone.rigify_parameters  # noqa
+        cage = parameters.jiggle_cloth_cage
+        anchor = parameters.jiggle_front_anchor
 
         cage_copy = bpy.data.objects.new(cage.name + '-SHAPE', cage.data)
         cage_copy.parent = cage.parent
@@ -508,5 +555,5 @@ class MESH_OT_rigify_add_jiggle_shapekey_anchor(bpy.types.Operator):
         context.collection.objects.link(cage_copy)
         context.collection.objects.link(anchor_copy)
 
-        pbone.rigify_parameters.jiggle_shape_anchor = anchor_copy
+        parameters.jiggle_shape_anchor = anchor_copy
         return {'FINISHED'}
