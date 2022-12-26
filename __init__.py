@@ -11,6 +11,7 @@ def _get_classes():
     return [
         cloth_cage.MESH_OT_rigify_add_jiggle_cloth_cage,
         cloth_cage.MESH_OT_rigify_add_jiggle_shapekey_anchor,
+        cloth_cage.MESH_OT_rigify_mirror_jiggle_cloth_cage,
         center_of_mass.MESH_OT_rigify_add_com_volume_cage,
     ]
 

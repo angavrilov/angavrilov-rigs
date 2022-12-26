@@ -15,20 +15,24 @@
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
 # ======================= END GPL LICENSE BLOCK ========================
-
 # <pep8 compliant>
 
 import bpy
 import math
 
 from itertools import repeat
+from typing import Optional
+
+from bpy.types import Context, ViewLayer, Object, ClothModifier, Mesh
+from mathutils import Matrix
 
 from rigify.utils.bones import put_bone
 from rigify.utils.mechanism import make_constraint, make_driver, make_property
 from rigify.utils.mechanism import deactivate_custom_properties, reactivate_custom_properties,\
     copy_custom_properties_with_ui
-from rigify.utils.naming import make_derived_name
-from rigify.utils.misc import map_list
+from rigify.utils.naming import make_derived_name, mirror_name, get_name_side, Side, unique_name
+from rigify.utils.misc import map_list, verify_armature_obj, ArmatureObject
+from rigify.utils.rig import get_rigify_params
 
 from rigify.base_rig import stage
 
@@ -237,6 +241,9 @@ class Rig(basic.Rig):
         row = layout.row()
         row.enabled = not params.jiggle_cloth_cage
         row.operator('mesh.rigify_add_jiggle_cloth_cage', text='Add Sample Cage')
+
+        if get_name_side(bpy.context.active_pose_bone.name) != Side.MIDDLE:
+            layout.operator(MESH_OT_rigify_mirror_jiggle_cloth_cage.bl_idname)
 
         layout.prop(params, 'jiggle_shape_anchor')
 
@@ -556,4 +563,278 @@ class MESH_OT_rigify_add_jiggle_shapekey_anchor(bpy.types.Operator):
         context.collection.objects.link(anchor_copy)
 
         parameters.jiggle_shape_anchor = anchor_copy
+        return {'FINISHED'}
+
+
+# noinspection PyPep8Naming
+class MESH_OT_rigify_mirror_jiggle_cloth_cage(bpy.types.Operator):
+    bl_idname = 'mesh.rigify_mirror_jiggle_cloth_cage'
+    bl_label = "Mirror Cloth Cage"
+    bl_description = "Add or replace the cage by mirroring from the symmetrical bone"
+    bl_options = {"REGISTER", "UNDO", "INTERNAL"}
+
+    @staticmethod
+    def get_mirror_bone(context: Context):
+        if pbone := context.active_pose_bone:
+            params = get_rigify_params(pbone)
+            name = mirror_name(pbone.name)
+
+            if name != pbone.name:
+                if mirror_bone := context.object.pose.bones.get(name):
+                    m_params = get_rigify_params(mirror_bone)
+
+                    if m_params.jiggle_cloth_cage not in (None, params.jiggle_cloth_cage):
+                        return mirror_bone
+
+        return None
+
+    @classmethod
+    def poll(cls, context):
+        return context.object and bool(cls.get_mirror_bone(context))
+
+    def select_objects(self, view_layer, objects):
+        for obj in objects:
+            obj.hide_set(False, view_layer=view_layer)
+            obj.hide_viewport = False
+
+            if not obj.visible_get(view_layer=view_layer):
+                self.report({'ERROR'}, f'Could not unhide {obj.name}')
+                return False
+
+        bpy.ops.object.select_all(action='DESELECT')
+
+        for obj in objects:
+            obj.select_set(True, view_layer=view_layer)
+
+            if not obj.select_get(view_layer=view_layer):
+                self.report({'ERROR'}, f'Could not select {obj.name}')
+                return False
+
+        view_layer.objects.active = objects[0]
+        return True
+
+    def copy_and_mirror_cage(self, view_layer: ViewLayer, armature: ArmatureObject,
+                             mirror_cage: Object, mirror_anchor: Object
+                             ) -> [Object | None, Object | None]:
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+
+        if mirror_anchor:
+            assert mirror_anchor.parent == mirror_cage
+
+            if not self.select_objects(view_layer, [mirror_anchor, mirror_cage]):
+                return None, None
+
+            bpy.ops.object.duplicate()
+
+            new_anchor = view_layer.objects.active
+            new_cage = new_anchor.parent
+
+        else:
+            if not self.select_objects(view_layer, [mirror_cage]):
+                return None, None
+
+            bpy.ops.object.duplicate()
+
+            new_anchor = None
+            new_cage = view_layer.objects.active
+
+        # Flip the cage and anchor
+        mirror_matrix = (armature.matrix_world @
+                         Matrix.Diagonal([-1, 1, 1, 1]) @
+                         armature.matrix_world.inverted())
+
+        new_cage.matrix_world = mirror_matrix @ new_cage.matrix_world
+
+        view_layer.update()
+
+        anchor_matrix = new_anchor.matrix_world.copy() if new_anchor else None
+
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+        if new_anchor:
+            new_anchor.matrix_basis = (new_anchor.matrix_basis @
+                                       new_anchor.matrix_world.inverted() @
+                                       anchor_matrix @ Matrix.Diagonal([-1, 1, 1, 1]))
+
+        # Correct normals of the new cage
+        if self.select_objects(view_layer, [new_cage]):
+            bpy.ops.object.editmode_toggle()
+            bpy.ops.mesh.reveal()
+            bpy.ops.mesh.select_all(action='SELECT')
+            bpy.ops.mesh.flip_normals()
+            bpy.ops.object.editmode_toggle()
+
+        return new_cage, new_anchor
+
+    @staticmethod
+    def mirror_vertex_groups(new_cage):
+        group_renames = []
+        for vg in new_cage.vertex_groups:
+            mirror = mirror_name(vg.name)
+            if vg.name != mirror:
+                group_renames.append((vg, mirror))
+        for vg, name in group_renames:
+            vg.name = name
+        for vg, name in group_renames:
+            vg.name = name
+
+    @staticmethod
+    def mirror_collection_ref(settings, field: str):
+        collection = getattr(settings, field)
+        if collection is None:
+            return
+
+        new_name = mirror_name(collection.name)
+        if new_name == collection.name:
+            return
+
+        for new_coll in bpy.data.collections:
+            if new_coll.name == new_name and new_coll.library == collection.library:
+                break
+        else:
+            new_coll = bpy.data.collections.new(new_name)
+            parents = list(bpy.data.collections) + [scene.collection for scene in bpy.data.scenes]
+
+            for parent in parents:
+                if collection in list(parent.children):
+                    parent.children.link(new_coll)
+
+        setattr(settings, field, new_coll)
+
+    @staticmethod
+    def set_mirror_name(new_cage: Object, old_cage, mirror_cage):
+        if new_cage:
+            name = None
+
+            if old_cage:
+                name = old_cage.name
+
+                # Change the name of the old cage to avoid a conflict
+                old_cage.name = unique_name(bpy.data.objects, old_cage.name)
+
+                if old_cage.data:
+                    old_cage.data.name = old_cage.name
+
+            elif mirror_cage:
+                name = mirror_name(mirror_cage.name)
+
+            if name is not None:
+                new_cage.name = name
+
+                if new_cage.data:
+                    new_cage.data.name = name
+
+    @staticmethod
+    def make_shape_anchor(old_shape_cage: Optional[Object], old_shape_anchor: Optional[Object],
+                          new_cage: Object, new_anchor: Object):
+        if old_shape_cage:
+            shape_cage = old_shape_cage
+            shape_cage.data = new_cage.data
+        else:
+            shape_cage = bpy.data.objects.new(new_cage.name + '-SHAPE', new_cage.data)
+            shape_cage.display_type = 'WIRE'
+            shape_cage.hide_render = True
+
+            for coll in bpy.data.collections:
+                if new_cage in list(coll.objects):
+                    coll.objects.link(shape_cage)
+
+        shape_cage.parent = new_cage.parent
+        shape_cage.matrix_parent_inverse = new_cage.matrix_parent_inverse
+        shape_cage.matrix_world = new_cage.matrix_world
+
+        anchor_copy = new_anchor.copy()
+        anchor_copy.name = (old_shape_anchor.name if old_shape_anchor
+                            else new_anchor.name + '-SHAPE')
+        anchor_copy.parent = shape_cage
+        anchor_copy.matrix_parent_inverse = new_anchor.matrix_parent_inverse
+        anchor_copy.hide_render = True
+
+        return anchor_copy
+
+    def execute(self, context):
+        view_layer = context.view_layer
+        armature = verify_armature_obj(context.object)
+        pbone = context.active_pose_bone
+
+        # Information about the current bone
+        params = get_rigify_params(pbone)
+        old_cage: Optional[Object] = params.jiggle_cloth_cage
+        old_anchor: Optional[Object] = params.jiggle_front_anchor
+        old_shape_cage: Optional[Object] = None
+        old_shape_anchor: Optional[Object] = params.jiggle_shape_anchor
+
+        if old_cage and old_shape_anchor and old_shape_anchor.parent and\
+                old_shape_anchor.parent.data == old_cage.data:
+            old_shape_cage = old_shape_anchor.parent
+
+        # Information about the mirror bone
+        mirror_bone = self.get_mirror_bone(context)
+
+        if not mirror_bone:
+            self.report({'ERROR'}, "No mirror bone")
+            return {'CANCELLED'}
+
+        mirror_params = get_rigify_params(mirror_bone)
+        mirror_cage: Optional[Object] = mirror_params.jiggle_cloth_cage
+        mirror_anchor: Optional[Object] = mirror_params.jiggle_front_anchor
+        mirror_shape_anchor: Optional[Object] = mirror_params.jiggle_shape_anchor
+
+        if not mirror_cage:
+            self.report({'ERROR'}, "No cage to mirror")
+            return {'CANCELLED'}
+
+        if mirror_anchor and mirror_anchor.parent != mirror_cage:
+            self.report({'ERROR'}, f"The anchor {mirror_anchor.name} must be a child of cage")
+            return {'CANCELLED'}
+
+        # Copy the mirror cage and anchor
+        new_cage, new_anchor = self.copy_and_mirror_cage(
+            view_layer, armature, mirror_cage, mirror_anchor)
+
+        if new_cage:
+            self.set_mirror_name(new_cage, old_cage, mirror_cage)
+            self.set_mirror_name(new_anchor, old_anchor, mirror_anchor)
+
+            for mod in new_cage.modifiers:
+                if isinstance(mod, ClothModifier):
+                    self.mirror_collection_ref(mod.collision_settings, 'collection')
+                    self.mirror_collection_ref(mod.settings.effector_weights, 'collection')
+
+            # Flip vertex group names
+            self.mirror_vertex_groups(new_cage)
+
+            # Generate new shape anchor
+            if new_anchor and (old_shape_anchor or mirror_shape_anchor):
+                new_shape_anchor = self.make_shape_anchor(
+                    old_shape_cage, old_shape_anchor, new_cage, new_anchor)
+            else:
+                new_shape_anchor = None
+
+            # Update links
+            if old_anchor and new_anchor:
+                old_anchor.user_remap(new_anchor)
+                bpy.data.objects.remove(old_anchor)
+
+            if old_cage:
+                old_cage_mesh = old_cage.data
+
+                old_cage.user_remap(new_cage)
+                bpy.data.objects.remove(old_cage)
+
+                if old_cage_mesh.users == 0:
+                    assert isinstance(old_cage_mesh, Mesh)
+                    bpy.data.meshes.remove(old_cage_mesh)
+
+            if old_shape_anchor and new_shape_anchor:
+                old_shape_anchor.user_remap(new_shape_anchor)
+                bpy.data.objects.remove(old_shape_anchor)
+
+            params.jiggle_cloth_cage = new_cage
+            params.jiggle_front_anchor = new_anchor
+            params.jiggle_shape_anchor = new_shape_anchor
+
+        if self.select_objects(view_layer, [armature]):
+            bpy.ops.object.mode_set(mode='POSE', toggle=False)
+
         return {'FINISHED'}
