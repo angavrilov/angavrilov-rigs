@@ -519,14 +519,7 @@ def create_sample(obj):
         bone.select_head = True
         bone.select_tail = True
         arm.edit_bones.active = bone
-
-    for eb in arm.edit_bones:
-        eb.layers = (False, False, False, False, False, False, False, False, False, False, False,
-                     False, False, True, False, False, False, False, False, False, False, False,
-                     False, False, False, False, False, False, False, False, False, False)
-
-    arm.layers = (False, False, False, False, False, False, False, False, False, False, False,
-                  False, False, True, False, False, False, False, False, False, False, False,
-                  False, False, False, False, False, False, False, False, False, False)
+        if bcoll := arm.collections.active:
+            bcoll.assign(bone)
 
     return bones
