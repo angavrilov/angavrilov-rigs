@@ -18,13 +18,19 @@ def _get_classes():
 
 def register():
     from bpy.utils import register_class
+    from .rigs.jiggle import cloth_fit_basis
 
     for cls in _get_classes():
         register_class(cls)
 
+    cloth_fit_basis.register()
+
 
 def unregister():
     from bpy.utils import unregister_class
+    from .rigs.jiggle import cloth_fit_basis
 
     for cls in _get_classes():
         unregister_class(cls)
+
+    cloth_fit_basis.unregister()
