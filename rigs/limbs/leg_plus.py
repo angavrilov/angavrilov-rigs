@@ -236,7 +236,7 @@ class POSE_OT_rigify_leg_roll_ik2fk(
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
     bl_idname = "pose.rigify_leg_roll_ik2fk_" + rig_id
     bl_label = "Snap IK->FK With Roll"
-    bl_description = "Snap the IK chain to FK result, using foot roll to preserve the current IK "
+    bl_description = "Snap the IK chain to FK result, using foot roll to preserve the current IK "\
                      "control orientation as much as possible"
 
     def invoke(self, context, event):
@@ -247,8 +247,8 @@ class POSE_OT_rigify_leg_roll_ik2fk_bake(
         RigifyLegRollIk2FkBase, RigifyBakeKeyframesMixin, bpy.types.Operator):
     bl_idname = "pose.rigify_leg_roll_ik2fk_bake_" + rig_id
     bl_label = "Apply Snap IK->FK To Keyframes"
-    bl_description = "Snap the IK chain keyframes to FK result, using foot roll to preserve the "
-                     "current IK control orientation  as much as possible"
+    bl_description = "Snap the IK chain keyframes to FK result, using foot roll to preserve the "\
+                     "current IK control orientation as much as possible"
 
     def execute_scan_curves(self, context, obj):
         self.bake_add_bone_frames(self.fk_bone_list, TRANSFORM_PROPS_ALL)

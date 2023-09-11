@@ -312,7 +312,7 @@ class ExtraHeelLinkComponent(RigComponent):
 
         self.heel_rigs = [rig for rig in owner.rigify_children if isinstance(rig, Rig)]
 
-        from angavrilov_rigs.rigs.body_ik.limb_rigs import BaseBodyIkLimbRig
+        from ..body_ik.limb_rigs import BaseBodyIkLimbRig
 
         if isinstance(self.owner, BaseBodyIkLimbRig):
             self.owner.use_middle_ik_parent_mch = True
@@ -418,7 +418,7 @@ class ExtraHeelLinkComponent(RigComponent):
 
     @stage.rig_bones
     def rig_body_ik_parent_bones(self):
-        from angavrilov_rigs.rigs.body_ik.limb_rigs import BaseBodyIkLimbRig
+        from ..body_ik.limb_rigs import BaseBodyIkLimbRig
 
         if isinstance(self.owner, BaseBodyIkLimbRig):
             parents = self.owner.bones.mch.ik_mid_parents
