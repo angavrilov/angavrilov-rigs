@@ -39,21 +39,6 @@ otherwise generation will fail with a 'vertex assigned to multiple groups' error
 
 ## Limb Rigs
 
-### Extended Leg (`limbs.leg_plus`)
-
-Adds experimental extensions to leg.
-
-* **Toe Tip Roll** generates a slider to apply the forward roll to the toe.
-  Roll is applied around a point produced by projecting the tail of the toe
-  bone on the ground plane that has the rock and roll backward pivots.
-
-**Runtime Options:**
-
-* **Roll Forward On Toe** makes the toe roll forward on its tip.
-* **IK->FK With Roll** snap button tries to snap IK to FK, using the heel roll
-  control to preserve the current IK control orientation as much as possible.
-  The operator allows selecting which roll channels to use via redo panel.
-
 ### Extra Leg Heel (`limbs.extra_heel`)
 
 Used as a child of a leg rig, this allows adding an alternative rest pose for
@@ -168,8 +153,6 @@ pose using FK, and then switched to the IK controls using snapping. Knee IK
 is also not stable for mathematical reasons when both legs are enabled and
 the shins are parallel (basically there are infinitely many solutions and
 it becomes confused).
-
-Note: the leg is based on `limbs.leg_plus` above.
 
 **Runtime Options:**
 
