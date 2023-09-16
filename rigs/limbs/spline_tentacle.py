@@ -6,7 +6,6 @@ import itertools
 import bisect
 import math
 
-from rigify.utils.errors import MetarigError
 from rigify.utils.naming import strip_org, make_derived_name
 from rigify.utils.bones import set_bone_widget_transform
 from rigify.utils.mechanism import make_driver, make_constraint, driver_var_transform
@@ -73,21 +72,8 @@ class Rig(SimpleChainRig):
         self.name_sep = name_sep if name_sep else '-'
         self.name_suffix = name_suffix
 
-        # Find the spline object if it exists
-        self.spline_name = (self.obj.name + '-MCH-' + name_base + self.name_sep +
-                            'spline' + name_suffix)
-        self.spline_obj = None
-
-        if self.spline_name in bpy.data.objects:
-            self.spline_obj = bpy.data.objects[self.spline_name]
-
-            if not isinstance(self.spline_obj.data, bpy.types.Curve):
-                raise MetarigError(
-                    f"Object '{self.spline_name}' already exists and is not a curve.")
-
-            if self.spline_obj.parent and self.spline_obj.parent != self.obj:
-                raise MetarigError(
-                    f"Object '{self.spline_name}' already exists and is not a child of the rig.")
+        # Create a spline object (replacing the old one if it exists)
+        self.spline_obj = self.generator.artifacts.create_new(self, 'CURVE', 'spline')
 
         # Options
         self.use_stretch = (self.params.sik_stretch_control == 'MANUAL_STRETCH')
@@ -630,26 +616,7 @@ class Rig(SimpleChainRig):
 
     @stage.configure_bones
     def make_spline_object(self):
-        if not self.spline_obj:
-            spline_data = bpy.data.curves.new(self.spline_name, 'CURVE')
-            new_spline = bpy.data.objects.new(self.spline_name, spline_data)
-            self.spline_obj = new_spline  # noqa
-            self.generator.collection.objects.link(self.spline_obj)
-
-            self.spline_obj.show_in_front = True
-            self.spline_obj.hide_select = True
-            self.spline_obj.hide_render = True
-            # self.spline_obj.hide_viewport = True
-
-        self.spline_obj.animation_data_clear()
-        self.spline_obj.data.animation_data_clear()
-
-        self.spline_obj.shape_key_clear()
-        self.spline_obj.modifiers.clear()
-
         spline_data = self.spline_obj.data
-
-        spline_data.splines.clear()
         spline_data.dimensions = '3D'
 
         self.make_spline_points(spline_data, self.all_controls)
@@ -657,25 +624,15 @@ class Rig(SimpleChainRig):
         if self.use_radius:
             self.make_spline_keys(self.spline_obj, self.all_controls)
 
-        self.spline_obj.parent = self.obj
-        self.spline_obj.parent_type = 'OBJECT'
-
     def make_spline_points(self, spline_data, all_controls):
         spline = spline_data.splines.new('BEZIER')
 
         spline.bezier_points.add(len(all_controls) - 1)
 
-        end_index = len(all_controls) - 1
-
         for i, (name, subtype, index) in enumerate(all_controls):
             point = spline.bezier_points[i]
             point.handle_left_type = point.handle_right_type = 'AUTO'
             point.co = point.handle_left = point.handle_right = self.get_bone(name).head
-
-            if i == 0 or self.use_tip and i == end_index:
-                point.radius = 1.0
-            else:
-                point.radius = self.max_curve_radius
 
     def make_spline_keys(self, spline_obj, all_controls):
         spline_obj.shape_key_add(name='Basis', from_mix=False)
@@ -719,10 +676,11 @@ class Rig(SimpleChainRig):
         hooks = self.mch_hooks_table[subtype]
         target = hooks[index] if hooks else ctrl
 
-        expr = '1 - var / %.2f' % self.max_curve_radius
+        expr = '1 - var'
         scale_var = [driver_var_transform(self.obj, target, type='SCALE_AVG', space='LOCAL')]
 
         make_driver(key, 'value', expression=expr, variables=scale_var)
+        key.slider_min = 1 - self.max_curve_radius
 
     ##############################
     # Spline IK Chain MCH
