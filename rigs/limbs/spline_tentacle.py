@@ -5,6 +5,7 @@ import re
 import itertools
 import bisect
 import math
+import json
 
 from rigify.utils.naming import strip_org, make_derived_name
 from rigify.utils.bones import set_bone_widget_transform
@@ -17,11 +18,12 @@ from rigify.utils.animation import add_generic_snap_fk_to_ik
 from rigify.utils.switch_parent import SwitchParentBuilder
 
 from rigify.base_rig import stage
+from rigify.rig_ui_template import PanelLayout
 
 from rigify.rigs.chain_rigs import SimpleChainRig
 from rigify.rigs.widgets import create_gear_widget
 
-from typing import NamedTuple
+from typing import NamedTuple, Sequence
 from itertools import count
 
 
@@ -252,7 +254,16 @@ class Rig(SimpleChainRig):
                 description="Enabled extra start controls for "+rig_name
             )
 
-            panel.custom_prop(master, 'start_controls', text="Start Controls")
+            row = panel.row(align=True)
+            row.custom_prop(master, 'start_controls', text="Start Controls")
+
+            ctrl_bones = self.bones.ctrl.start
+            hook_bones = self.bones.mch.start_hooks
+
+            add_toggle_control_button(row, prop_bone=master, prop_name='start_controls',
+                                      ctrl_bones=ctrl_bones, hook_bones=hook_bones, enable=True)
+            add_toggle_control_button(row, prop_bone=master, prop_name='start_controls',
+                                      ctrl_bones=ctrl_bones, hook_bones=hook_bones, enable=False)
 
         if self.params.sik_end_controls > 0:
             self.make_property(
@@ -261,7 +272,20 @@ class Rig(SimpleChainRig):
                 description="Enabled extra end controls for "+rig_name
             )
 
-            panel.custom_prop(master, 'end_controls', text="End Controls")
+            row = panel.row(align=True)
+            row.custom_prop(master, 'end_controls', text="End Controls")
+
+            ctrl_bones = self.bones.ctrl.end
+            hook_bones = self.bones.mch.end_hooks
+
+            if self.use_tip:
+                ctrl_bones = ctrl_bones[1:]
+                hook_bones = hook_bones[1:]
+
+            add_toggle_control_button(row, prop_bone=master, prop_name='end_controls',
+                                      ctrl_bones=ctrl_bones, hook_bones=hook_bones, enable=True)
+            add_toggle_control_button(row, prop_bone=master, prop_name='end_controls',
+                                      ctrl_bones=ctrl_bones, hook_bones=hook_bones, enable=False)
 
         # End twist correction for directly controllable tip
         if self.use_tip:
@@ -914,6 +938,168 @@ class Rig(SimpleChainRig):
         col = layout.column()
         col.active = params.sik_fk_controls
         ControlLayersOption.FK.parameters_ui(col, params)
+
+
+SCRIPT_REGISTER_OP_TOGGLE_CONTROLS = ['POSE_OT_rigify_spline_tentacle_toggle_control']
+
+SCRIPT_UTILITIES_OP_TOGGLE_CONTROLS = ['''
+#####################################
+## Toggle Spline Tentacle Controls ##
+#####################################
+
+class RigifySplineTentacleToggleControlBase:
+    prop_bone:      StringProperty(name="Settings Bone")
+    prop_name:      StringProperty(name="Switch Property")
+
+    ctrl_bones:     StringProperty(name="Control Bones")
+    hook_bones:     StringProperty(name="Hook Bones")
+
+    @classmethod
+    def poll(cls, context):
+        return find_action(context.active_object) is not None
+
+    def check_increment(self, obj, delta):
+        bone = obj.pose.bones[self.prop_bone]
+        ui_data = bone.id_properties_ui(self.prop_name).as_dict()
+        return ui_data["min"] <= bone[self.prop_name] + delta <= ui_data["max"]
+
+    def get_property(self, obj):
+        return obj.pose.bones[self.prop_bone][self.prop_name]
+
+    def set_property(self, obj, value):
+        obj.pose.bones[self.prop_bone][self.prop_name] = value
+
+    def keyframe_increment(self, context, obj, delta):
+        action = find_action(obj)
+        bone = obj.pose.bones[self.prop_bone]
+        prop_quoted = rna_idprop_quote_path(self.prop_name)
+
+        # Find the F-Curve
+        data_path = bone.path_from_id(prop_quoted)
+        fcurve = action.fcurves.find(data_path) or action.fcurves.new(data_path, action_group=self.prop_bone)
+
+        # Ensure the current value is keyed at the start of the animation
+        keyflags = get_keying_flags(context)
+        frame = context.scene.frame_current
+
+        if len(fcurve.keyframe_points) == 0:
+            min_x = min(fcu.keyframe_points[0].co[0] for fcu in action.fcurves if len(fcu.keyframe_points) > 0)
+            min_frame = nla_tweak_to_scene(obj.animation_data, min_x)
+            if min_frame < frame:
+                bone.keyframe_insert(prop_quoted, frame=min_frame, options=keyflags)
+
+        # Keyframe the new value
+        cur_value = bone[self.prop_name]
+        new_value = cur_value + delta
+
+        bone[self.prop_name] = new_value
+        bone.keyframe_insert(prop_quoted, frame=frame, options=keyflags)
+
+        # Ensure constant interpolation
+        for key in fcurve.keyframe_points:
+            key.interpolation = 'CONSTANT'
+
+        return fcurve, cur_value, new_value
+
+    def get_hook_bone(self, obj, index):
+        hook_bones = json.loads(self.hook_bones)
+        return obj.pose.bones[hook_bones[index]]
+
+    def get_control_bone(self, obj, index):
+        ctrl_bones = json.loads(self.ctrl_bones)
+        return obj.pose.bones[ctrl_bones[index]]
+
+    def get_hook_position(self, obj, index):
+        hook = self.get_hook_bone(obj, index)
+
+        hook_matrix_pose = hook.matrix.copy()
+        hook_matrix_local = obj.convert_space(
+            pose_bone=hook, matrix=hook_matrix_pose, from_space='POSE', to_space='LOCAL')
+
+        return hook_matrix_pose.translation, hook_matrix_local.to_scale()
+
+    def set_control_position(self, context, obj, index, location, scale):
+        ctrl = self.get_control_bone(obj, index)
+
+        ctrl_matrix_local = obj.convert_space(
+            pose_bone=ctrl, matrix=Matrix.Translation(location), from_space='POSE', to_space='LOCAL')
+
+        ctrl.location = ctrl_matrix_local.translation
+        ctrl.scale = scale
+
+        keyframe_transform_properties(obj, ctrl.name, get_keying_flags(context), no_rot=True)
+
+class POSE_OT_rigify_spline_tentacle_toggle_control(RigifySplineTentacleToggleControlBase, bpy.types.Operator):
+    bl_idname = "pose.rigify_spline_tentacle_toggle_control_" + rig_id
+    bl_label = "Toggle And Keyframe Extra Control"
+    bl_options = {'UNDO', 'INTERNAL', 'REGISTER'}
+
+    enable: bpy.props.BoolProperty(name="Enable a control")
+
+    @classmethod
+    def description(cls, context, props):
+        return (("Enable" if props.enable else "Disable") +
+                " one more extra control in the middle of an animation, appropriately keyframing its position"
+                " and the count property to preserve animation continuity")
+
+    def execute(self, context):
+        obj = context.active_object
+        delta = 1 if self.enable else -1
+
+        if not self.check_increment(obj, delta):
+            self.report({'ERROR'}, "There are no more controls to {'enable' if self.enable else 'disable'}")
+            return {'CANCELED'}
+
+        index = self.get_property(obj) + min(0, delta)
+
+        if self.enable:
+            loc, scale = self.get_hook_position(obj, index)
+
+            self.keyframe_increment(context, obj, 1)
+        else:
+            self.keyframe_increment(context, obj, -1)
+
+            obj.update_tag(refresh={'DATA'})
+            context.view_layer.update()
+
+            loc, scale = self.get_hook_position(obj, index)
+
+        self.set_control_position(context, obj, index, loc, scale)
+
+        obj.update_tag(refresh={'DATA'})
+        return {'FINISHED'}
+''']
+
+
+def add_toggle_control_button(panel: 'PanelLayout', *,
+                              prop_bone: str,
+                              prop_name: str,
+                              ctrl_bones: Sequence[str],
+                              hook_bones: Sequence[str],
+                              enable=True,
+                              text=''):
+    panel.use_bake_settings()
+    panel.script.add_utilities(SCRIPT_UTILITIES_OP_TOGGLE_CONTROLS)
+    panel.script.register_classes(SCRIPT_REGISTER_OP_TOGGLE_CONTROLS)
+
+    op_props = {
+        'prop_bone': prop_bone,
+        'prop_name': prop_name,
+        'ctrl_bones': json.dumps(ctrl_bones),
+        'hook_bones': json.dumps(hook_bones),
+        'enable': enable,
+    }
+
+    row = panel.row(align=True)
+
+    if enable:
+        row.enabled = row.expr_bone(prop_bone)[prop_name] < len(ctrl_bones)
+    else:
+        row.enabled = row.expr_bone(prop_bone)[prop_name] > 0
+
+    row.operator('pose.rigify_spline_tentacle_toggle_control_{rig_id}', text=text,
+                 icon='ADD' if enable else 'REMOVE',
+                 properties=op_props)
 
 
 def create_twist_widget(rig, bone_name, size=1.0, head_tail=0.5, bone_transform_name=None):
