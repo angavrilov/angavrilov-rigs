@@ -18,7 +18,7 @@ from rigify.utils.animation import add_generic_snap_fk_to_ik
 from rigify.utils.switch_parent import SwitchParentBuilder
 
 from rigify.base_rig import stage
-from rigify.rig_ui_template import PanelLayout
+from rigify.rig_ui_template import PanelLayout, UTILITIES_FUNC_COMMON_IK_FK
 
 from rigify.rigs.chain_rigs import SimpleChainRig
 from rigify.rigs.widgets import create_gear_widget
@@ -314,6 +314,14 @@ class Rig(SimpleChainRig):
                 fk_bones=self.bones.ctrl.fk, ik_bones=self.get_ik_final(),
                 ik_ctrl_bones=ik_controls,
                 undo_copy_scale=True,
+                rig_name=rig_name
+            )
+
+            add_spline_snap_ik_to_fk(
+                panel,
+                fk_bones=self.bones.ctrl.fk, ik_bones=self.get_ik_final(),
+                ik_ctrl_bones=ik_controls,
+                use_tip=self.use_tip,
                 rig_name=rig_name
             )
 
@@ -938,6 +946,144 @@ class Rig(SimpleChainRig):
         col = layout.column()
         col.active = params.sik_fk_controls
         ControlLayersOption.FK.parameters_ui(col, params)
+
+
+###########################
+# Limb IK to FK operator ##
+###########################
+
+SCRIPT_REGISTER_OP_SNAP_IK_FK = ['POSE_OT_rigify_spline_tentacle_ik2fk']
+
+SCRIPT_UTILITIES_OP_SNAP_IK_FK = UTILITIES_FUNC_COMMON_IK_FK + ['''
+########################
+## Limb Snap IK to FK ##
+########################
+
+class RigifySplineTentacleIk2FkBase:
+    fk_bones:     StringProperty(name="FK Bone Chain")
+    ik_bones:     StringProperty(name="IK Result Bone Chain")
+    ctrl_bones:   StringProperty(name="IK Controls")
+    use_tip:      bpy.props.BoolProperty(name="Direct Tip Control")
+
+    def init_execute(self, context):
+        self.fk_bone_list = json.loads(self.fk_bones)
+        self.ik_bone_list = json.loads(self.ik_bones)
+        self.ctrl_bone_list = json.loads(self.ctrl_bones)
+        if not self.use_tip:
+            self.twist_control_bone = self.ctrl_bone_list.pop()
+
+    def save_frame_state(self, context, obj):
+        matrices = get_chain_transform_matrices(obj, self.fk_bone_list)
+        if not self.use_tip:
+            last_tail = matrices[-1].copy()
+            last_tail.translation = obj.pose.bones[self.fk_bone_list[-1]].tail
+            matrices.append(last_tail)
+        return matrices
+
+    def apply_frame_state(self, context, obj, all_matrices):
+        ik_bones = [obj.pose.bones[k] for k in self.ik_bone_list]
+        ctrl_bones = [obj.pose.bones[k] for k in self.ctrl_bone_list]
+
+        # Reset rotation and scale of main
+        set_transform_from_matrix(
+            obj, self.ctrl_bone_list[0], Matrix.Identity(4), space='LOCAL', keyflags=self.keyflags)
+        set_transform_from_matrix(
+            obj, self.ctrl_bone_list[-1], Matrix.Identity(4), space='LOCAL', keyflags=self.keyflags)
+
+        if not self.use_tip:
+            set_transform_from_matrix(
+                obj, self.twist_control_bone, Matrix.Identity(4), space='LOCAL', keyflags=self.keyflags)
+
+        # Position the first and last controls and update to ensure switchable parent is ready
+        set_transform_from_matrix(
+            obj, self.ctrl_bone_list[0], all_matrices[0], keyflags=self.keyflags, no_scale=True, no_rot=True)
+
+        set_transform_from_matrix(
+            obj, self.ctrl_bone_list[-1], all_matrices[-1], keyflags=self.keyflags, no_scale=not self.use_tip)
+
+        context.view_layer.update()
+
+        # Find currently enabled controls
+        visible_ctrls = [
+            bone for bone in ctrl_bones[1:-1]
+            if not (bone.bone.hide and obj.data.animation_data.drivers.find(bone.bone.path_from_id("hide")))
+        ]
+        ctrl_count = len(visible_ctrls) + (0 if self.use_tip else 1)
+        max_pos = 1 - 0.25 / ctrl_count
+        ctrl_points = [
+            (min((i+1) / ctrl_count, max_pos), ctrl) for i, ctrl in enumerate(visible_ctrls)
+        ]
+
+        # Measure the fk polyline
+        points = [m.translation for m in all_matrices]
+        lengths = [(n - p).length for p, n in zip(points, points[1:])]
+        tot_length = sum(lengths)
+
+        # Snap visible controls evenly to the polyline
+        total = 0
+
+        for seg_len, p, n in zip(lengths, points, points[1:]):
+            prev_total = total
+            total += seg_len / tot_length
+            while ctrl_points and ctrl_points[0][0] <= total:
+                fac, ctrl = ctrl_points.pop(0)
+                fac = (fac - prev_total) / (total - prev_total)
+                assert 0 <= fac <= 1
+                pos = p * (1 - fac) + n * fac
+                set_transform_from_matrix(
+                    obj, ctrl.name, Matrix.Translation(pos), keyflags=self.keyflags, no_scale=True, no_rot=True)
+
+        # Try to approximate twist
+        context.view_layer.update()
+
+        base_error_matrix = ik_bones[0].matrix.inverted() @ all_matrices[0]
+        base_twist = base_error_matrix.to_quaternion().to_swing_twist('Y')[1]
+
+        set_transform_from_matrix(
+            obj, self.ctrl_bone_list[0],
+            Euler((0, base_twist, 0)).to_matrix().to_4x4(), space='LOCAL',
+            keyflags=self.keyflags, no_scale=True, no_loc=True
+        )
+
+        if not self.use_tip:
+            context.view_layer.update()
+
+            tip_error_matrix = ik_bones[-1].matrix.inverted() @ all_matrices[-1]
+            tip_twist = tip_error_matrix.to_quaternion().to_swing_twist('Y')[1]
+
+            set_transform_from_matrix(
+                obj, self.twist_control_bone,
+                Euler((0, tip_twist, 0)).to_matrix().to_4x4(), space='LOCAL',
+                keyflags=self.keyflags, no_scale=True, no_loc=True
+            )
+
+class POSE_OT_rigify_spline_tentacle_ik2fk(RigifySplineTentacleIk2FkBase, RigifySingleUpdateMixin, bpy.types.Operator):
+    bl_idname = "pose.rigify_spline_tentacle_ik2fk_" + rig_id
+    bl_label = "Snap IK->FK"
+    bl_description = "Approximately snap the IK chain to FK result. Note that this will never produce an exact match"
+''']
+
+
+def add_spline_snap_ik_to_fk(panel: 'PanelLayout', *,
+                             fk_bones: Sequence[str],
+                             ik_bones: Sequence[str],
+                             ik_ctrl_bones: Sequence[str],
+                             use_tip: bool,
+                             rig_name=''):
+    panel.use_bake_settings()
+    panel.script.add_utilities(SCRIPT_UTILITIES_OP_SNAP_IK_FK)
+    panel.script.register_classes(SCRIPT_REGISTER_OP_SNAP_IK_FK)
+
+    op_props = {
+        'fk_bones': json.dumps(fk_bones),
+        'ik_bones': json.dumps(ik_bones),
+        'ctrl_bones': json.dumps(ik_ctrl_bones),
+        'use_tip': use_tip,
+    }
+
+    panel.operator(
+        'pose.rigify_spline_tentacle_ik2fk_{rig_id}',
+        text=f'IK->FK ({rig_name})', icon='SNAP_ON', properties=op_props)
 
 
 SCRIPT_REGISTER_OP_TOGGLE_CONTROLS = ['POSE_OT_rigify_spline_tentacle_toggle_control']
