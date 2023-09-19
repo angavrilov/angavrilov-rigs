@@ -335,6 +335,7 @@ class Rig(SimpleChainRig):
             fk_bones=self.bones.ctrl.fk, ik_bones=self.get_ik_final(),
             ik_ctrl_bones=ik_controls,
             use_tip=self.use_tip,
+            use_stretch=self.use_stretch,
             rig_name=rig_name
         )
 
@@ -977,6 +978,7 @@ class RigifySplineTentacleIk2FkBase:
     ik_bones:     StringProperty(name="IK Result Bone Chain")
     ctrl_bones:   StringProperty(name="IK Controls")
     use_tip:      bpy.props.BoolProperty(name="Direct Tip Control")
+    use_stretch:  bpy.props.BoolProperty(name="Manual Stretch")
 
     def init_execute(self, context):
         self.fk_bone_list = json.loads(self.fk_bones)
@@ -997,15 +999,9 @@ class RigifySplineTentacleIk2FkBase:
         ik_bones = [obj.pose.bones[k] for k in self.ik_bone_list]
         ctrl_bones = [obj.pose.bones[k] for k in self.ctrl_bone_list]
 
-        # Reset rotation and scale of main
-        set_transform_from_matrix(
-            obj, self.ctrl_bone_list[0], Matrix.Identity(4), space='LOCAL', keyflags=self.keyflags)
-        set_transform_from_matrix(
-            obj, self.ctrl_bone_list[-1], Matrix.Identity(4), space='LOCAL', keyflags=self.keyflags)
-
-        if not self.use_tip:
-            set_transform_from_matrix(
-                obj, self.twist_control_bone, Matrix.Identity(4), space='LOCAL', keyflags=self.keyflags)
+        # Reset transformation of controls
+        for name in self.ctrl_bone_list + ([] if self.use_tip else [self.twist_control_bone]):
+            set_transform_from_matrix(obj, name, Matrix.Identity(4), space='LOCAL', keyflags=self.keyflags)
 
         # Position the first and last controls and update to ensure switchable parent is ready
         set_transform_from_matrix(
@@ -1046,28 +1042,64 @@ class RigifySplineTentacleIk2FkBase:
                 set_transform_from_matrix(
                     obj, ctrl.name, Matrix.Translation(pos), keyflags=self.keyflags, no_scale=True, no_rot=True)
 
-        # Try to approximate twist
+        # Initial approximation of twist and scale for the base control
         context.view_layer.update()
 
-        base_error_matrix = ik_bones[0].matrix.inverted() @ all_matrices[0]
-        base_twist = base_error_matrix.to_quaternion().to_swing_twist('Y')[1]
+        base_error_rotation = ik_bones[0].matrix.to_quaternion().inverted() @ all_matrices[0].to_quaternion()
+        base_twist = base_error_rotation.to_swing_twist('Y')[1]
+        base_scale = [b / a for a, b in zip(ik_bones[0].matrix.to_scale(), all_matrices[0].to_scale())]
+
+        if self.use_stretch and any(con.type == 'MAINTAIN_VOLUME' and not con.mute
+                                    for con in ctrl_bones[0].constraints):
+            # Compensate for the maintain volume constraint
+            base_scale[0] *= pow(base_scale[1], 1.5)
+            base_scale[2] *= pow(base_scale[1], 1.5)
+
+        if self.use_tip:
+            # Compensate for the effect of targeting the tip bone orientation
+            chain_len = len(all_matrices)
+            tip_factor = chain_len / (chain_len - 1)
+            base_twist = base_twist * tip_factor
+            base_scale = [pow(s, tip_factor) for s in base_scale]
 
         set_transform_from_matrix(
-            obj, self.ctrl_bone_list[0],
-            Euler((0, base_twist, 0)).to_matrix().to_4x4(), space='LOCAL',
-            keyflags=self.keyflags, no_scale=True, no_loc=True
+            obj, self.ctrl_bone_list[0], Matrix.LocRotScale(None, Euler((0, base_twist, 0)), base_scale),
+            space='LOCAL', keyflags=self.keyflags, no_loc=True
         )
 
+        # Approximation for the tip twist control, and correction for the base control
         if not self.use_tip:
             context.view_layer.update()
 
-            tip_error_matrix = ik_bones[-1].matrix.inverted() @ all_matrices[-1]
-            tip_twist = tip_error_matrix.to_quaternion().to_swing_twist('Y')[1]
+            tip_error_rotation = ik_bones[-1].matrix.to_quaternion().inverted() @ all_matrices[-1].to_quaternion()
+            tip_twist = tip_error_rotation.to_swing_twist('Y')[1]
+            tip_scale = [b / a for a, b in zip(ik_bones[-1].matrix.to_scale(), all_matrices[-1].to_scale())]
+
+            if self.use_stretch:
+                # Compensate for the maintain volume constraint
+                tip_scale[0] *= pow(tip_scale[1], 1.5)
+                tip_scale[2] *= pow(tip_scale[1], 1.5)
+            else:
+                tip_scale = [1, 1, 1]
+
+            # Compensate for the fraction removed from the base below
+            chain_len = len(all_matrices) - 1
+            tip_factor = chain_len / (chain_len - 1)
+            new_tip_twist = tip_twist * tip_factor
+            new_tip_scale = [pow(s, tip_factor) for s in tip_scale]
 
             set_transform_from_matrix(
-                obj, self.twist_control_bone,
-                Euler((0, tip_twist, 0)).to_matrix().to_4x4(), space='LOCAL',
-                keyflags=self.keyflags, no_scale=True, no_loc=True
+                obj, self.twist_control_bone, Matrix.LocRotScale(None, Euler((0, new_tip_twist, 0)), new_tip_scale),
+                space='LOCAL', keyflags=self.keyflags, no_loc=True, no_scale=not self.use_stretch
+            )
+
+            # A fraction of the tip scale and twist is applied to the base bone too, so remove it
+            new_base_twist = base_twist - tip_twist / (chain_len - 1)
+            new_base_scale = [b / pow(t, 1 / (chain_len - 1)) for b, t in zip(base_scale, tip_scale)]
+
+            set_transform_from_matrix(
+                obj, self.ctrl_bone_list[0], Matrix.LocRotScale(None, Euler((0, new_base_twist, 0)), new_base_scale),
+                space='LOCAL', keyflags=self.keyflags, no_loc=True
             )
 
 class POSE_OT_rigify_spline_tentacle_ik2fk(RigifySplineTentacleIk2FkBase, RigifySingleUpdateMixin, bpy.types.Operator):
@@ -1081,7 +1113,7 @@ def add_spline_snap_ik_to_fk(panel: 'PanelLayout', *,
                              fk_bones: Sequence[str],
                              ik_bones: Sequence[str],
                              ik_ctrl_bones: Sequence[str],
-                             use_tip: bool,
+                             use_tip: bool, use_stretch: bool,
                              rig_name=''):
     panel.use_bake_settings()
     panel.script.add_utilities(SCRIPT_UTILITIES_OP_SNAP_IK_FK)
@@ -1092,6 +1124,7 @@ def add_spline_snap_ik_to_fk(panel: 'PanelLayout', *,
         'ik_bones': json.dumps(ik_bones),
         'ctrl_bones': json.dumps(ik_ctrl_bones),
         'use_tip': use_tip,
+        'use_stretch': use_stretch,
     }
 
     panel.operator(
