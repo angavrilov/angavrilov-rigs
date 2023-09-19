@@ -794,7 +794,7 @@ class Rig(SimpleChainRig):
     def parent_mch_tip_fix(self):
         if self.use_tip:
             self.set_bone_parent(self.bones.mch.tip_fix_parent, self.bones.mch.ik[-1])
-            self.set_bone_parent(self.bones.mch.tip_fix, self.bones.mch.tip_fix_parent)
+            self.set_bone_parent(self.bones.mch.tip_fix, self.bones.mch.tip_fix_parent, inherit_scale='ALIGNED')
 
     @stage.rig_bones
     def rig_mch_tip_fix(self):
@@ -834,7 +834,7 @@ class Rig(SimpleChainRig):
     def parent_mch_ik_final_chain(self):
         if self.use_tip:
             for final, ik in zip(self.bones.mch.ik_final, self.bones.mch.ik):
-                self.set_bone_parent(final, ik)
+                self.set_bone_parent(final, ik, inherit_scale='ALIGNED')
 
     @stage.rig_bones
     def rig_mch_ik_final_chain(self):
