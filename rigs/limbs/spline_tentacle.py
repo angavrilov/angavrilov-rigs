@@ -1196,8 +1196,17 @@ class POSE_OT_rigify_spline_tentacle_toggle_control(RigifySplineTentacleToggleCo
             self.report({'ERROR'}, "There are no more controls to {'enable' if self.enable else 'disable'}")
             return {'CANCELED'}
 
+        # Find the control bone
         index = self.get_property(obj) + min(0, delta)
+        ctrl = self.get_control_bone(obj, index)
 
+        # Select the master control if hiding the active bone
+        select_bone = None
+
+        if not self.enable and obj.data.bones.active == ctrl.bone:
+            select_bone = obj.pose.bones[self.prop_bone].bone
+
+        # Capture the hook transform when the control is disabled, and keyframe toggle
         if self.enable:
             loc, scale = self.get_hook_position(obj, index)
 
@@ -1210,7 +1219,17 @@ class POSE_OT_rigify_spline_tentacle_toggle_control(RigifySplineTentacleToggleCo
 
             loc, scale = self.get_hook_position(obj, index)
 
+        # Keyframe the passive hook transform onto the control
         self.set_control_position(context, obj, index, loc, scale)
+
+        # Select the new control if enabling it
+        if self.enable:
+            select_bone = ctrl.bone
+
+        if select_bone is not None:
+            for bone in obj.data.bones:
+                bone.select = bone == select_bone
+            obj.data.bones.active = select_bone
 
         obj.update_tag(refresh={'DATA'})
         return {'FINISHED'}
