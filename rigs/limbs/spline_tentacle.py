@@ -254,16 +254,7 @@ class Rig(SimpleChainRig):
                 description="Enabled extra start controls for "+rig_name
             )
 
-            row = panel.row(align=True)
-            row.custom_prop(master, 'start_controls', text="Start Controls")
-
-            ctrl_bones = self.bones.ctrl.start
-            hook_bones = self.bones.mch.start_hooks
-
-            add_toggle_control_button(row, prop_bone=master, prop_name='start_controls',
-                                      ctrl_bones=ctrl_bones, hook_bones=hook_bones, enable=True)
-            add_toggle_control_button(row, prop_bone=master, prop_name='start_controls',
-                                      ctrl_bones=ctrl_bones, hook_bones=hook_bones, enable=False)
+            self.add_start_controls_buttons(panel, master, rig_name)
 
         if self.params.sik_end_controls > 0:
             self.make_property(
@@ -272,20 +263,7 @@ class Rig(SimpleChainRig):
                 description="Enabled extra end controls for "+rig_name
             )
 
-            row = panel.row(align=True)
-            row.custom_prop(master, 'end_controls', text="End Controls")
-
-            ctrl_bones = self.bones.ctrl.end
-            hook_bones = self.bones.mch.end_hooks
-
-            if self.use_tip:
-                ctrl_bones = ctrl_bones[1:]
-                hook_bones = hook_bones[1:]
-
-            add_toggle_control_button(row, prop_bone=master, prop_name='end_controls',
-                                      ctrl_bones=ctrl_bones, hook_bones=hook_bones, enable=True)
-            add_toggle_control_button(row, prop_bone=master, prop_name='end_controls',
-                                      ctrl_bones=ctrl_bones, hook_bones=hook_bones, enable=False)
+            self.add_end_controls_buttons(panel, master, rig_name)
 
         # End twist correction for directly controllable tip
         if self.use_tip:
@@ -297,33 +275,68 @@ class Rig(SimpleChainRig):
                             "it to the actual tip orientation within 180 degrees"
             )
 
-            panel.custom_prop(master, 'end_twist', text="End Twist Fix")
+            self.add_direct_tip_buttons(panel, master, rig_name)
 
         # IK/FK switch
         if self.use_fk:
             self.make_property(master, 'IK_FK', 0.0, description='IK/FK switch for '+rig_name)
 
-            panel.custom_prop(master, 'IK_FK', text="IK - FK", slider=True)
+            self.add_fk_snap_buttons(panel, master, rig_name)
 
-            ik_controls = [item[0] for item in self.all_controls]
-            if not self.use_tip:
-                ik_controls += [self.bones.ctrl.end_twist]
+    def add_start_controls_buttons(self, panel: 'PanelLayout', master: str, _rig_name: str):
+        row = panel.row(align=True)
+        row.custom_prop(master, 'start_controls', text="Start Controls")
 
-            add_generic_snap_fk_to_ik(
-                panel,
-                fk_bones=self.bones.ctrl.fk, ik_bones=self.get_ik_final(),
-                ik_ctrl_bones=ik_controls,
-                undo_copy_scale=True,
-                rig_name=rig_name
-            )
+        ctrl_bones = self.bones.ctrl.start
+        hook_bones = self.bones.mch.start_hooks
 
-            add_spline_snap_ik_to_fk(
-                panel,
-                fk_bones=self.bones.ctrl.fk, ik_bones=self.get_ik_final(),
-                ik_ctrl_bones=ik_controls,
-                use_tip=self.use_tip,
-                rig_name=rig_name
-            )
+        add_toggle_control_button(row, prop_bone=master, prop_name='start_controls',
+                                  ctrl_bones=ctrl_bones, hook_bones=hook_bones, enable=True)
+        add_toggle_control_button(row, prop_bone=master, prop_name='start_controls',
+                                  ctrl_bones=ctrl_bones, hook_bones=hook_bones, enable=False)
+
+    def add_end_controls_buttons(self, panel: 'PanelLayout', master: str, _rig_name: str):
+        row = panel.row(align=True)
+        row.custom_prop(master, 'end_controls', text="End Controls")
+
+        ctrl_bones = self.bones.ctrl.end
+        hook_bones = self.bones.mch.end_hooks
+
+        if self.use_tip:
+            ctrl_bones = ctrl_bones[1:]
+            hook_bones = hook_bones[1:]
+
+        add_toggle_control_button(row, prop_bone=master, prop_name='end_controls',
+                                  ctrl_bones=ctrl_bones, hook_bones=hook_bones, enable=True)
+        add_toggle_control_button(row, prop_bone=master, prop_name='end_controls',
+                                  ctrl_bones=ctrl_bones, hook_bones=hook_bones, enable=False)
+
+    # noinspection PyMethodMayBeStatic
+    def add_direct_tip_buttons(self, panel: 'PanelLayout', master: str, _rig_name: str):
+        panel.custom_prop(master, 'end_twist', text="End Twist Fix")
+
+    def add_fk_snap_buttons(self, panel: 'PanelLayout', master: str, rig_name: str):
+        panel.custom_prop(master, 'IK_FK', text="IK - FK", slider=True)
+
+        ik_controls = [item[0] for item in self.all_controls]
+        if not self.use_tip:
+            ik_controls += [self.bones.ctrl.end_twist]
+
+        add_generic_snap_fk_to_ik(
+            panel,
+            fk_bones=self.bones.ctrl.fk, ik_bones=self.get_ik_final(),
+            ik_ctrl_bones=ik_controls,
+            undo_copy_scale=True,
+            rig_name=rig_name
+        )
+
+        add_spline_snap_ik_to_fk(
+            panel,
+            fk_bones=self.bones.ctrl.fk, ik_bones=self.get_ik_final(),
+            ik_ctrl_bones=ik_controls,
+            use_tip=self.use_tip,
+            rig_name=rig_name
+        )
 
     @stage.generate_widgets
     def make_master_control_widget(self):
