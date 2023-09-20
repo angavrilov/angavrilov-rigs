@@ -267,13 +267,15 @@ class Rig(SimpleChainRig):
 
         # End twist correction for directly controllable tip
         if self.use_tip:
-            max_val = len(self.bones.org) / 2
+            max_val = len(self.bones.org) * math.pi
 
             self.make_property(
                 master, 'end_twist', 0.0, min=-max_val, max=max_val,
-                description="Rough end twist estimate in full rotations. The rig auto-corrects "
-                            "it to the actual tip orientation within 180 degrees"
+                subtype='ANGLE',  # precision=0, step=1000.0,
+                description="Rough end twist estimate. The rig auto-corrects it to the actual tip orientation "
+                            "within 180 degrees of the specified value"
             )
+            self.get_bone(master).id_properties_ui("end_twist").update(precision=0, step=1000.0)
 
             self.add_direct_tip_buttons(panel, master, rig_name)
 
@@ -313,7 +315,7 @@ class Rig(SimpleChainRig):
 
     # noinspection PyMethodMayBeStatic
     def add_direct_tip_buttons(self, panel: 'PanelLayout', master: str, _rig_name: str):
-        panel.custom_prop(master, 'end_twist', text="End Twist Fix")
+        panel.custom_prop(master, 'end_twist', text="End Twist Estimate")
 
     def add_fk_snap_buttons(self, panel: 'PanelLayout', master: str, rig_name: str):
         panel.custom_prop(master, 'IK_FK', text="IK - FK", slider=True)
@@ -759,11 +761,10 @@ class Rig(SimpleChainRig):
         num_ik = len(self.bones.org)
 
         # Apply end twist rotation
+        rot_fac = 1.0 / num_ik
         if self.use_tip:
-            rot_fac = math.pi * 2 / num_ik
             rot_var = [(self.bones.ctrl.master, 'end_twist')]
         else:
-            rot_fac = 1.0 / num_ik
             rot_var = [(self.bones.ctrl.end_twist, '.rotation_euler.y')]
 
         self.make_driver(
