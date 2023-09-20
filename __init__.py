@@ -1,6 +1,12 @@
+# noinspection SpellCheckingInspection
 rigify_info = {
     "name": "Experimental Rigs by Alexander Gavrilov",
+    "author": "Alexander Gavrilov",
+    "description":
+        "Experimental and/or niche rigs made by a Rigify maintainer.\n"
+        "Includes a BlenRig-like spine, Body IK (knee & elbow IK), jiggles, skin transforms, etc.",
     "link": "https://github.com/angavrilov/angavrilov-rigs",
+    "blender": (4, 0, 0),
 }
 
 

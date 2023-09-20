@@ -58,42 +58,6 @@ original leg deform bones during animation.
 
 **Example file:** [demo-extra-heel.blend](https://www.dropbox.com/s/ll6ckj24yav6eyn/demo-extra-heel.blend?dl=0) demonstrates using this rig to implement a switch between low and high heel shoes via a property on the root bone.
 
-### Spline IK Tentacle (`limbs.spline_tentacle`)
-
-This rig type implements a tentacle with an IK system using the Spline IK constraint.
-The controls define control points of a Bezier curve, and the bone chain follows the curve.
-
-The curve control points are sorted into three groups: start, middle and end. The middle
-controls are always visible and active, while the other two types can be shown and hidden
-dynamically using properties; when enabled they appear next to the corresponding permanent
-start/end control and can be moved from there.
-
-* **Extra Start Controls** specifies the number of optional start controls to generate.
-* **Middle Controls** specifies the number of middle controls to generate.
-* **Extra End Controls** specifies the number of optional end controls to generate.
-* Curve Fit Mode:
-  + **Stretch To Fit** stretches the whole bone chain to fit the length of the curve defined
-    by the controls.
-  + **Direct Tip Control** turns the last bone of the chain into the end control, allowing
-    direct control over that bone, while the middle bones stretch to follow the curve and
-    cover the gap. This is similar to how regular IK works for limbs.
-  + **Manual Squash & Stretch** allows full manual control over the chain scaling, while the
-    chain covers as much of the curve as it can given its current length.
-* **Radius Scaling** allows scaling the controls to control the thickness of the chain through the curve.
-* **Maximum Radius** specifies the maximum scale allowed by the *Radius Scaling* feature.
-* **FK Controls** generates an FK control chain and IK-FK snapping.
-
-**Runtime Options:**
-
-* **Start Controls** changes the number of visible optional start controls.
-* **End Controls** changes the number of visible optional end controls.
-* **End Twist Fix** (Direct Tip Control only)
-  For technical reasons, the rig can only determine the chain twist from the tip control
-  within the -180..180 degrees range. Exceeding that flips the twist direction.
-  This option allows working around the limitation by dialing in a rough estimate of
-  twist in full rotations, and letting the rig auto-correct to the precise value within
-  the 180 degrees range from the estimate.
-
 ## Spine Rigs
 
 ### BlenRig-like Spine (`spines.blenrig_spine`)
