@@ -318,6 +318,26 @@ class ExtraHeelLinkComponent(RigComponent):
             self.owner.use_middle_ik_parent_mch = True
 
     ####################################################
+    # IK Widget Offset
+
+    @stage.rig_bones
+    def rig_ik_control_widget_offset(self):
+        variables = {}
+        expressions = []
+        base_z = self.get_bone(self.owner.bones.org.heel).head.z
+
+        for i, rig in enumerate(self.heel_rigs):
+            offset = self.get_bone(rig.bones.org.heel).head.z - base_z
+            variables[f"v{i}"] = rig.get_enabled_ref()
+            expressions.append(f"{offset:.3f} if v{i}")
+
+        expressions.append("0")
+
+        ik_bone = self.get_bone(self.owner.bones.ctrl.ik)
+        self.make_driver(ik_bone, 'custom_shape_translation', index=2,
+                         variables=variables, expression=' else '.join(expressions))
+
+    ####################################################
     # IK target
 
     @stage.rig_bones
