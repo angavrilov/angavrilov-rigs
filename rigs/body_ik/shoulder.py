@@ -158,7 +158,7 @@ class Rig(BaseBodyIkLimbParentRig):
         bone1.tail = bone2.head = bone1.head + Vector((0, 0, bone1.length))
         bone2.tail = bone2.head + Vector((1, 0, 0))
         bone1.roll = bone2.roll = 0
-        bone2.use_inherit_scale = False
+        bone2.inherit_scale = 'NONE'
         self.bones.mch.ik = [mch1, mch2]
 
     @stage.parent_bones

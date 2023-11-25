@@ -147,7 +147,7 @@ class BaseBodyIkSpineRig(spine_rigs.BaseSpineRig, BaseBodyIkLimbParentRig):
         bone1.tail = bone2.head = bone1.head + Vector((0, 0, 1))
         bone2.tail = bone1.head + Vector((1, 0, 1))
         bone1.roll = bone2.roll = 0
-        bone2.use_inherit_scale = False
+        bone2.inherit_scale = 'NONE'
         self.bones.mch.hip_ik = [mch1, mch2]
 
     @stage.parent_bones
